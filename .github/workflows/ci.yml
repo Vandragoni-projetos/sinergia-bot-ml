@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: sinergia_test
+          MARIADB_USER: sinergia
+          MARIADB_PASSWORD: ci-only-password
+          MARIADB_RANDOM_ROOT_PASSWORD: "1"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 3306
+      TEST_DB_DATABASE: sinergia_test
+      TEST_DB_USERNAME: sinergia
+      TEST_DB_PASSWORD: ci-only-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql, sodium
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - run: composer audit
+      - run: vendor/bin/phpunit
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M

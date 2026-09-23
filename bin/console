@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Sinergia\Cli\ConsoleApplication;
+use Sinergia\Shared\Config\Config;
+use Sinergia\Shared\Config\ConfigException;
+use Sinergia\Shared\Config\Environment;
+
+$root = dirname(__DIR__);
+require $root . '/vendor/autoload.php';
+
+try {
+    $config = Config::fromArray(Environment::load($root));
+} catch (ConfigException $e) {
+    fwrite(STDERR, $e->getMessage() . PHP_EOL);
+    exit(2);
+}
+
+exit(ConsoleApplication::create($config, $root)->run());

@@ -1,0 +1,27 @@
+# Ambiente LOCAL de desenvolvimento. Não é o deploy (EasyPanel será configurado depois).
+# Variáveis vêm do .env local (nunca versionado).
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      DB_HOST: db
+    depends_on:
+      - db
+
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE:-sinergia}
+      MARIADB_USER: ${DB_USERNAME:-sinergia}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+
+volumes:
+  dbdata:

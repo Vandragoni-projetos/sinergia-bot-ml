@@ -1,0 +1,51 @@
+{
+    "name": "vandragoni-projetos/sinergia-bot-ml",
+    "description": "SINERGIA BOT ML — descoberta e curadoria de produtos do Mercado Livre via APIs oficiais.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.4",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-pdo": "*",
+        "ext-sodium": "*",
+        "guzzlehttp/guzzle": "^7.9",
+        "monolog/monolog": "^3.7",
+        "php-di/php-di": "^7.0",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/log": "^3.0",
+        "slim/psr7": "^1.7",
+        "slim/slim": "^4.14",
+        "symfony/console": "^7.1",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Sinergia\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Sinergia\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.4.0"
+        },
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=512M",
+        "migrate": "php bin/console db:migrate"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

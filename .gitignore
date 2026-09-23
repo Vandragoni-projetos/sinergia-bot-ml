@@ -1,0 +1,64 @@
+# --- Segredos e ambiente (NUNCA versionar) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+*secret*
+!**/*Secret*.php
+*credential*
+!**/*Credential*.php
+*token*.json
+auth.json
+
+# --- Dependências regeneráveis ---
+/vendor/
+/node_modules/
+
+# --- Runtime (somente placeholders .gitkeep são versionados) ---
+/storage/*
+!/storage/.gitkeep
+!/storage/logs/
+!/storage/cache/
+!/storage/validation/
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/cache/*
+!/storage/cache/.gitkeep
+/storage/validation/*
+!/storage/validation/.gitkeep
+*.log
+
+# --- Dados que nunca entram no Git ---
+*.sql
+!/database/migrations/*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.db
+/uploads/
+*.zip
+*.tar
+*.tar.gz
+
+# --- Ferramentas / cache de testes ---
+/.phpunit.cache/
+/.phpunit.result.cache
+/.phpstan-cache/
+/coverage/
+/build/
+
+# --- IDE / SO ---
+/.idea/
+/.vscode/
+/.cursor/
+/.claude/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

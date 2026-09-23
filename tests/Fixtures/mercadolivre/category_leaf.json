@@ -1,0 +1,19 @@
+{
+  "id": "MLB900002",
+  "name": "Categoria Folha Exemplo",
+  "picture": null,
+  "permalink": "https://www.mercadolivre.com.br/c/exemplo",
+  "total_items_in_this_category": 12345,
+  "path_from_root": [
+    { "id": "MLB900000", "name": "Raiz Exemplo" },
+    { "id": "MLB900001", "name": "Intermediária Exemplo" },
+    { "id": "MLB900002", "name": "Categoria Folha Exemplo" }
+  ],
+  "children_categories": [],
+  "attribute_types": "attributes",
+  "settings": {
+    "catalog_domain": "MLB-EXAMPLE_DOMAIN",
+    "buying_allowed": true,
+    "listing_allowed": true
+  }
+}

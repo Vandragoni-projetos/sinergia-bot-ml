@@ -1,0 +1,11 @@
+{
+  "id": "MLB900000",
+  "name": "Raiz Exemplo",
+  "path_from_root": [
+    { "id": "MLB900000", "name": "Raiz Exemplo" }
+  ],
+  "children_categories": [
+    { "id": "MLB900001", "name": "Intermediária Exemplo", "total_items_in_this_category": 500 },
+    { "id": "MLB900010", "name": "Outra Intermediária", "total_items_in_this_category": 70 }
+  ]
+}
