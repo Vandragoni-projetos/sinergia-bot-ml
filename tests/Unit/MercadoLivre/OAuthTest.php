@@ -106,6 +106,63 @@ final class OAuthTest extends TestCase
         self::assertStringNotContainsString(self::SECRET, $fake->logText());
     }
 
+    public function testRefreshPostsOfficialRefreshTokenGrant(): void
+    {
+        $fake = new FakeMercadoLivre(withToken: false);
+        $fake->queueJson(200, [
+            'access_token' => FakeMercadoLivre::TOKEN,
+            'token_type' => 'bearer',
+            'expires_in' => 21600,
+            'scope' => 'offline_access read',
+            'user_id' => 1234567,
+            'refresh_token' => 'TG-new-refresh-0002',
+        ]);
+
+        $tokens = $this->oauth($fake)->refresh(new SensitiveValue('TG-old-refresh-0001'));
+
+        $request = $fake->lastRequest();
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.mercadolibre.com/oauth/token', (string) $request->getUri());
+        parse_str((string) $request->getBody(), $form);
+        self::assertSame([
+            'grant_type' => 'refresh_token',
+            'client_id' => '1234567890123456',
+            'client_secret' => self::SECRET,
+            'refresh_token' => 'TG-old-refresh-0001',
+        ], $form);
+        self::assertFalse($request->hasHeader('Authorization'));
+        self::assertSame(FakeMercadoLivre::TOKEN, $tokens->accessToken->reveal());
+        self::assertSame('TG-new-refresh-0002', $tokens->refreshToken?->reveal());
+
+        $logs = $fake->logText();
+        foreach ([FakeMercadoLivre::TOKEN, 'TG-old-refresh-0001', 'TG-new-refresh-0002', self::SECRET] as $secret) {
+            self::assertStringNotContainsString($secret, $logs);
+        }
+    }
+
+    public function testRefreshInvalidGrantKeepsOfficialErrorAndHidesSecrets(): void
+    {
+        $fake = new FakeMercadoLivre(withToken: false);
+        $fake->queueJson(400, [
+            'error' => 'invalid_grant',
+            'error_description' => 'Error validating grant. Your authorization code or refresh token may be expired or it was already used.',
+            'message' => 'refresh TG-old-refresh-0001 invalid',
+            'status' => 400,
+        ]);
+
+        try {
+            $this->oauth($fake)->refresh(new SensitiveValue('TG-old-refresh-0001'));
+            self::fail('Deveria falhar.');
+        } catch (OAuthException $e) {
+            self::assertSame('invalid_grant', $e->errorCode);
+            self::assertSame(400, $e->httpStatus);
+            self::assertStringNotContainsString('TG-old-refresh-0001', $e->getMessage());
+            self::assertStringNotContainsString(self::SECRET, $e->getMessage());
+        }
+        self::assertStringNotContainsString('TG-old-refresh-0001', $fake->logText());
+        self::assertStringNotContainsString(self::SECRET, $fake->logText());
+    }
+
     public function testTokenResponseWithoutAccessTokenIsRejected(): void
     {
         $this->expectException(OAuthException::class);
