@@ -10,6 +10,7 @@ use Sinergia\Cli\Command\HighlightsCheckCommand;
 use Sinergia\Cli\Command\InstallationEnsureCommand;
 use Sinergia\Cli\Command\MigrateCommand;
 use Sinergia\Cli\Command\OAuthFinishCommand;
+use Sinergia\Cli\Command\OAuthRefreshCommand;
 use Sinergia\Cli\Command\OAuthStartCommand;
 use Sinergia\Cli\Command\OAuthStatusCommand;
 use Sinergia\Kernel;
@@ -29,6 +30,7 @@ final class ConsoleApplication
             new OAuthStartCommand($container),
             new OAuthFinishCommand($container),
             new OAuthStatusCommand($container),
+            new OAuthRefreshCommand($container),
             new CategoryCheckCommand($container),
             new HighlightsCheckCommand($container),
         ]);

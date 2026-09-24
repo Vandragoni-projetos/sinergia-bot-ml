@@ -116,14 +116,16 @@ final class Kernel
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
             )),
+            // Token OAuth da instalação com renovação serializada (usado pelo cliente e pelo ml:oauth:refresh).
+            StoredTokenProvider::class => factory(static fn (ContainerInterface $c) => new StoredTokenProvider(
+                $c->get(Installation::class)->id,
+                $c->get(MlCredentialRepository::class),
+                $c->get(OAuthClient::class),
+                $c->get(Clock::class),
+            )),
             // Cliente com o token OAuth da instalação (renovação automática e serializada).
             MercadoLivreClient::class => factory(static fn (ContainerInterface $c) => $c->get('ml.client.public')->withTokenProvider(
-                new StoredTokenProvider(
-                    $c->get(Installation::class)->id,
-                    $c->get(MlCredentialRepository::class),
-                    $c->get(OAuthClient::class),
-                    $c->get(Clock::class),
-                ),
+                $c->get(StoredTokenProvider::class),
             )),
 
             'ml.categories.public' => factory(static fn (ContainerInterface $c) => new CategoryService($c->get('ml.client.public'))),

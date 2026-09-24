@@ -42,35 +42,69 @@ final class StoredTokenProvider implements AccessTokenProvider
             return $current->accessToken;
         }
 
+        return $this->refreshUnderLock($now, false)['token'];
+    }
+
+    /**
+     * Renovação explícita (ml:oauth:refresh): mesmo caminho com lock do accessToken().
+     * Sem $force, só renova dentro da janela de renovação. Só aceita credencial "connected".
+     *
+     * @return bool true se o token foi renovado agora
+     */
+    public function refresh(bool $force = false): bool
+    {
+        $now = $this->clock->now();
+        $current = $this->credentials->find($this->installation);
+        if ($current === null) {
+            throw new OAuthException('Nenhuma credencial do Mercado Livre conectada para esta instalação.', 'oauth_not_connected');
+        }
+        if ($current->status !== 'connected') {
+            throw new OAuthException(
+                sprintf('Credencial com status "%s": renovação não permitida. Conecte a conta novamente.', $current->status),
+                'credential_not_connected',
+            );
+        }
+        if (!$force && $current->accessValidFor($now, self::REFRESH_MARGIN_SECONDS)) {
+            return false;
+        }
+
+        return $this->refreshUnderLock($now, $force)['refreshed'];
+    }
+
+    /** @return array{token: SensitiveValue, refreshed: bool} */
+    private function refreshUnderLock(\DateTimeImmutable $now, bool $force): array
+    {
         try {
             return $this->credentials->withLockedCredential(
                 $this->installation,
-                fn (?StoredCredential $locked): SensitiveValue => $this->refreshIfStillNeeded($locked, $now),
+                fn (?StoredCredential $locked): array => $this->refreshIfStillNeeded($locked, $now, $force),
             );
         } catch (OAuthException $e) {
-            if (in_array($e->errorCode, ['invalid_grant', 'refresh_unavailable'], true)) {
+            // Um refresh forçado sem refresh_token não invalida um access token que ainda vale.
+            if ($e->errorCode === 'invalid_grant' || ($e->errorCode === 'refresh_unavailable' && !$force)) {
                 $this->credentials->markStatus($this->installation, 'expired');
             }
             throw $e;
         }
     }
 
-    private function refreshIfStillNeeded(?StoredCredential $locked, \DateTimeImmutable $now): SensitiveValue
+    /** @return array{token: SensitiveValue, refreshed: bool} */
+    private function refreshIfStillNeeded(?StoredCredential $locked, \DateTimeImmutable $now, bool $force): array
     {
         if ($locked === null) {
             throw new OAuthException('Credencial removida durante a renovação.', 'oauth_not_connected');
         }
         // Outro processo pode ter renovado enquanto aguardávamos o lock.
-        if ($locked->accessValidFor($now, self::REFRESH_MARGIN_SECONDS)) {
-            return $locked->accessToken;
+        if (!$force && $locked->accessValidFor($now, self::REFRESH_MARGIN_SECONDS)) {
+            return ['token' => $locked->accessToken, 'refreshed' => false];
         }
         if ($locked->refreshToken === null) {
-            throw new OAuthException('Token expirado e sem refresh_token. Conecte a conta novamente.', 'refresh_unavailable');
+            throw new OAuthException('Token sem refresh_token. Conecte a conta novamente.', 'refresh_unavailable');
         }
 
         $tokens = $this->oauth->refresh($locked->refreshToken);
         $this->credentials->save($this->installation, $locked->clientId, $tokens, $now);
 
-        return $tokens->accessToken;
+        return ['token' => $tokens->accessToken, 'refreshed' => true];
     }
 }
