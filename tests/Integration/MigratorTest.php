@@ -22,7 +22,42 @@ final class MigratorTest extends DatabaseTestCase
 
         $second = (new Migrator($pdo, dirname(__DIR__, 2) . '/database/migrations'))->migrate();
         self::assertSame([], $second, 'Segunda execução não aplica nada.');
-        self::assertSame(1, (int) $pdo->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn());
+        self::assertSame(['0001', '0002'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    public function testDatabaseWithOnly0001IsUpgradedTo0002(): void
+    {
+        // Cenário da produção: 0001 já aplicada; a 0002 só amplia ml_credentials.scopes.
+        $pdo = $this->freshSchema();
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        foreach ($pdo->query('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'')->fetchAll(\PDO::FETCH_NUM) as $row) {
+            $pdo->exec('DROP TABLE IF EXISTS `' . str_replace('`', '', (string) $row[0]) . '`');
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+
+        $migrations = dirname(__DIR__, 2) . '/database/migrations';
+        $dir = sys_get_temp_dir() . '/sinergia-mig-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        copy($migrations . '/0001_foundation.sql', $dir . '/0001_foundation.sql');
+
+        try {
+            self::assertSame(['0001'], (new Migrator($pdo, $dir))->migrate());
+            self::assertSame('varchar', $this->scopesType($pdo));
+
+            self::assertSame(['0002'], (new Migrator($pdo, $migrations))->migrate());
+            self::assertSame('text', $this->scopesType($pdo));
+        } finally {
+            unlink($dir . '/0001_foundation.sql');
+            rmdir($dir);
+        }
+    }
+
+    private function scopesType(\PDO $pdo): string
+    {
+        return (string) $pdo->query(
+            "SELECT DATA_TYPE FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ml_credentials' AND COLUMN_NAME = 'scopes'"
+        )->fetchColumn();
     }
 
     public function testChangedAppliedMigrationIsRejected(): void

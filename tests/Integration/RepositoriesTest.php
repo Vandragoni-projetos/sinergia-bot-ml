@@ -98,6 +98,26 @@ final class RepositoriesTest extends DatabaseTestCase
         self::assertSame('2026-09-22 18:00:00', $stored?->accessExpiresAt->format('Y-m-d H:i:s'));
     }
 
+    public function testCredentialsKeepLongScopeListIntact(): void
+    {
+        // Regressão: o Mercado Livre devolveu escopos com mais de 255 caracteres e o save falhou (1406).
+        $pdo = $this->freshSchema();
+        $inst = (new InstallationRepository($pdo))->ensure('default', 'Local', 'MLB')->id;
+        $box = new SecretBox(new SensitiveValue((string) base64_decode(SecretBox::generateKeyBase64(), true)));
+        $repo = new MlCredentialRepository($pdo, $box);
+        $scopes = 'offline_access read write ' . implode(' ', array_map(
+            static fn (int $i): string => sprintf('urn:ml:all:scope-%03d:/read-write', $i),
+            range(1, 60),
+        ));
+        self::assertGreaterThan(1500, strlen($scopes));
+
+        $repo->save($inst, '123456', new TokenSet(
+            new SensitiveValue('APP_USR-access-plain'), new SensitiveValue('TG-refresh-plain'), 21600, $scopes, 42, 'bearer',
+        ), new \DateTimeImmutable('2026-09-24T12:00:00Z'));
+
+        self::assertSame($scopes, $repo->find($inst)?->scopes);
+    }
+
     public function testOAuthStateIsSingleUseAndExpires(): void
     {
         $pdo = $this->freshSchema();
