@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Sinergia\Infrastructure\Persistence;
 
+use Sinergia\Application\Port\MercadoLivre\OAuthStateRejected;
+use Sinergia\Application\Port\MercadoLivre\OAuthStateStore;
 use Sinergia\Domain\Installation\InstallationId;
 use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Shared\Config\SensitiveValue;
 
 /** Estado OAuth de uso único: só o hash do state é guardado; o code_verifier fica cifrado. */
-final class OAuthStateRepository
+final class OAuthStateRepository implements OAuthStateStore
 {
     public function __construct(
         private readonly \PDO $pdo,
@@ -52,7 +54,7 @@ final class OAuthStateRepository
             $stmt->execute(['inst' => $installation->value, 'hash' => $hash]);
             $row = $stmt->fetch();
             if (!is_array($row)) {
-                throw new \RuntimeException('State OAuth desconhecido ou já utilizado.');
+                throw OAuthStateRejected::unknown();
             }
             $this->pdo->prepare('DELETE FROM ml_oauth_states WHERE id = :id')->execute(['id' => $row['id']]);
             $this->pdo->commit();
@@ -63,7 +65,7 @@ final class OAuthStateRepository
 
         $expires = new \DateTimeImmutable((string) $row['expires_at'], new \DateTimeZone('UTC'));
         if ($expires < $now) {
-            throw new \RuntimeException('State OAuth expirado. Inicie o fluxo novamente.');
+            throw OAuthStateRejected::expired();
         }
 
         return [

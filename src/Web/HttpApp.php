@@ -12,8 +12,9 @@ use Slim\App;
 use Slim\Factory\AppFactory;
 use Sinergia\Shared\Config\Config;
 use Sinergia\Web\Action\HealthAction;
+use Sinergia\Web\Action\MercadoLivreOAuthCallbackAction;
 
-/** Aplicação HTTP (Slim). No MVP 0 expõe apenas /health. */
+/** Aplicação HTTP (Slim): /health e o callback OAuth do Mercado Livre. */
 final class HttpApp
 {
     public static function create(ContainerInterface $container): App
@@ -38,6 +39,8 @@ final class HttpApp
         ));
 
         $app->get('/health', new HealthAction($config));
+        // Precisa coincidir com o caminho de ML_REDIRECT_URI cadastrado no aplicativo do Mercado Livre.
+        $app->get(MercadoLivreOAuthCallbackAction::PATH, new MercadoLivreOAuthCallbackAction($container));
 
         return $app;
     }

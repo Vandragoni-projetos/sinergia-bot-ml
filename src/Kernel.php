@@ -9,6 +9,7 @@ use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
+use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
 use Sinergia\Application\Validation\EvidenceWriter;
 use Sinergia\Application\Validation\ValidateCategory;
 use Sinergia\Application\Validation\ValidateHighlights;
@@ -106,6 +107,14 @@ final class Kernel
                 $c->get('ml.client.public'),
                 $c->get(Config::class)->mercadoLivre(),
                 $c->get(Config::class)->mercadoLivreOAuth(),
+            )),
+            // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
+            CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(
+                $c->get(OAuthStateRepository::class),
+                $c->get(OAuthClient::class),
+                $c->get(MlCredentialRepository::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
             )),
             // Cliente com o token OAuth da instalação (renovação automática e serializada).
             MercadoLivreClient::class => factory(static fn (ContainerInterface $c) => $c->get('ml.client.public')->withTokenProvider(
