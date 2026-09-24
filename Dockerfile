@@ -4,7 +4,7 @@ WORKDIR /app
 COPY composer.json composer.lock* ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --optimize-autoloader
 
-FROM php:8.4-apache
+FROM php:8.4-apache-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libzip-dev unzip \
