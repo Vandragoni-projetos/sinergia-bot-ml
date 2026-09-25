@@ -12,6 +12,7 @@ use Psr\Log\LoggerInterface;
 use Sinergia\Application\Auth\AuthService;
 use Sinergia\Application\Auth\PasswordHasher;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
+use Sinergia\Application\OAuth\StartMercadoLivreConnection;
 use Sinergia\Application\Validation\EvidenceWriter;
 use Sinergia\Application\Validation\ValidateCategory;
 use Sinergia\Application\Validation\ValidateHighlights;
@@ -22,6 +23,8 @@ use Sinergia\Infrastructure\Database\Migrator;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
 use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
+use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
+use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
 use Sinergia\Infrastructure\Persistence\SessionRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
 use Sinergia\Infrastructure\Persistence\MlCategoryRepository;
@@ -92,6 +95,15 @@ final class Kernel
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
             )),
+            // Conexões / Mercado Livre pelo painel (F1, etapa 2).
+            StartMercadoLivreConnection::class => factory(static fn (ContainerInterface $c) => new StartMercadoLivreConnection(
+                $c->get(OAuthStateRepository::class),
+                $c->get(OAuthClient::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            MlConnectionStatusRepository::class => factory(static fn (ContainerInterface $c) => new MlConnectionStatusRepository($c->get(\PDO::class))),
+            MediaDeclarationRepository::class => factory(static fn (ContainerInterface $c) => new MediaDeclarationRepository($c->get(\PDO::class))),
             Csrf::class => factory(static fn (Config $c) => new Csrf($c->appKey())),
             PanelCookies::class => factory(static fn (Config $c) => new PanelCookies(!in_array($c->appEnv(), ['local', 'test'], true))),
             Views::class => factory(static fn (ContainerInterface $c) => new Views(new TwigEnvironment(

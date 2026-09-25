@@ -1,0 +1,115 @@
+{% extends 'panel/layout.twig' %}
+
+{% set tz = 'America/Sao_Paulo' %}
+
+{% block content %}
+<ol class="flow" aria-label="Como o bot funciona">
+    <li class="flow-current">Conectar</li>
+    <li>O que vender</li>
+    <li>Onde publicar</li>
+    <li>O bot trabalha</li>
+</ol>
+
+<h1>{{ page.title }}</h1>
+<p class="muted">{{ page.lead }}</p>
+
+{% if ml.just_connected %}
+    <p class="notice success" role="status">Mercado Livre conectado.</p>
+{% endif %}
+
+<div class="cards">
+    <section class="card" aria-labelledby="ml-title">
+        <header class="card-head">
+            <h2 id="ml-title">Mercado Livre</h2>
+            {% if ml.state == 'connected' %}
+                <span class="pill ok">Conectado</span>
+            {% elseif ml.state == 'connecting' %}
+                <span class="pill wait">Conectando</span>
+            {% elseif ml.state == 'error' %}
+                <span class="pill bad">Erro</span>
+            {% elseif ml.state == 'reconnect' %}
+                <span class="pill bad">Reconexão necessária</span>
+            {% else %}
+                <span class="pill">Não conectado</span>
+            {% endif %}
+        </header>
+
+        {% if ml.state == 'error' %}
+            <p class="alert" role="alert">{{ ml.error }} Nada foi alterado{% if ml.still_connected %}; a conexão anterior continua ativa{% endif %}.</p>
+        {% endif %}
+
+        {% if ml.summary and (ml.state == 'connected' or ml.still_connected) %}
+            <dl class="facts">
+                <div><dt>Conta do Mercado Livre</dt><dd>nº {{ ml.summary.mlUserId ?? '—' }}</dd></div>
+                <div><dt>Conectada em</dt><dd>{{ ml.summary.connectedAt|date('d/m/Y H:i', tz) }}</dd></div>
+                <div><dt>Acesso válido até</dt><dd>{{ ml.summary.accessExpiresAt|date('d/m/Y H:i', tz) }}</dd></div>
+                <div><dt>Renovação automática</dt><dd>{{ ml.summary.hasRefreshToken ? 'Ativa' : 'Indisponível — reconecte' }}</dd></div>
+            </dl>
+        {% elseif ml.state == 'reconnect' %}
+            <p>A conexão desta conta não está mais válida. Conecte de novo para o bot voltar a consultar o Mercado Livre.</p>
+        {% elseif ml.state == 'connecting' %}
+            <p>Conexão iniciada. Conclua a autorização na página do Mercado Livre; o link vale 10 minutos.</p>
+        {% elseif ml.state == 'disconnected' %}
+            <p>Conecte a conta do Mercado Livre que o bot vai usar para encontrar os produtos. O login é feito no próprio Mercado Livre.</p>
+        {% endif %}
+
+        <form method="post" action="/conexoes/mercadolivre/conectar" class="actions">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            {% if ml.state == 'connected' %}
+                <button type="submit">Reconectar</button>
+            {% elseif ml.state == 'connecting' or ml.state == 'error' %}
+                <button type="submit" class="primary-inline">Tentar de novo</button>
+            {% else %}
+                <button type="submit" class="primary-inline">Conectar Mercado Livre</button>
+            {% endif %}
+        </form>
+
+        <section class="subcard" aria-labelledby="affiliate-title">
+            <h3 id="affiliate-title">Afiliado</h3>
+            <dl class="facts">
+                <div><dt>Modo</dt><dd>{{ affiliate.mode == 'official_api' ? 'Integração oficial' : 'Gerador oficial em lote' }}</dd></div>
+                <div><dt>Biblioteca de links</dt><dd>Chega na etapa 7</dd></div>
+            </dl>
+
+            {% if affiliate.feedback == 'declarado' %}
+                <p class="notice success" role="status">Declaração registrada.</p>
+            {% elseif affiliate.feedback == 'removido' %}
+                <p class="notice" role="status">Declaração removida.</p>
+            {% elseif affiliate.feedback == 'confirmacao_necessaria' %}
+                <p class="alert" role="alert">Marque a confirmação para registrar a declaração.</p>
+            {% endif %}
+
+            {% if affiliate.declaration %}
+                <p class="declared">
+                    <strong>Mídias declaradas</strong> por {{ affiliate.declaration.user_name }}
+                    em {{ affiliate.declaration.declared_at|date('d/m/Y H:i', tz) }}.
+                </p>
+                <p class="muted small">{{ affiliate.text }}</p>
+                <form method="post" action="/conexoes/afiliado/declaracao" class="actions">
+                    <input type="hidden" name="_csrf" value="{{ csrf }}">
+                    <input type="hidden" name="acao" value="remover">
+                    <button type="submit">Remover declaração</button>
+                </form>
+            {% else %}
+                <form method="post" action="/conexoes/afiliado/declaracao">
+                    <input type="hidden" name="_csrf" value="{{ csrf }}">
+                    <input type="hidden" name="acao" value="declarar">
+                    <label class="check">
+                        <input type="checkbox" name="confirmo" value="1" required>
+                        <span>{{ affiliate.text }}</span>
+                    </label>
+                    <div class="actions"><button type="submit">Registrar declaração</button></div>
+                </form>
+            {% endif %}
+        </section>
+    </section>
+
+    <section class="card" aria-labelledby="wa-title">
+        <header class="card-head">
+            <h2 id="wa-title">WhatsApp</h2>
+            <span class="pill">Em breve</span>
+        </header>
+        <p class="muted">A conexão do WhatsApp chega na etapa 5.</p>
+    </section>
+</div>
+{% endblock %}

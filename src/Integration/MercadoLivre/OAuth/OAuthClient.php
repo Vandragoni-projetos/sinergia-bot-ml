@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sinergia\Integration\MercadoLivre\OAuth;
 
 use Sinergia\Application\Port\MercadoLivre\AuthorizationCodeExchanger;
+use Sinergia\Application\Port\MercadoLivre\AuthorizationUrlBuilder;
 use Sinergia\Application\Port\MercadoLivre\TokenSet;
 use Sinergia\Integration\MercadoLivre\Exception\HttpErrorException;
 use Sinergia\Integration\MercadoLivre\Http\MercadoLivreClient;
@@ -17,7 +18,7 @@ use Sinergia\Shared\Config\SensitiveValue;
  * O login no Mercado Livre é SEMPRE feito pelo próprio usuário no navegador;
  * este código nunca vê senha, cookie ou CSRF do Mercado Livre.
  */
-final class OAuthClient implements AuthorizationCodeExchanger
+final class OAuthClient implements AuthorizationCodeExchanger, AuthorizationUrlBuilder
 {
     public function __construct(
         private readonly MercadoLivreClient $client,

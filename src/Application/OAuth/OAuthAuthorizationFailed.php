@@ -16,6 +16,8 @@ final class OAuthAuthorizationFailed extends \RuntimeException
     public const string STATE_EXPIRED = 'state_expired';
     public const string TOKEN_EXCHANGE_FAILED = 'token_exchange_failed';
     public const string STORAGE_FAILED = 'storage_failed';
+    public const string LOGIN_REQUIRED = 'login_required';
+    public const string ACCOUNT_MISMATCH = 'account_mismatch';
 
     public function __construct(
         public readonly string $reason,

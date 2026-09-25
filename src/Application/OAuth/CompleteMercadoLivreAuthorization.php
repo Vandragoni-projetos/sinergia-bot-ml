@@ -10,9 +10,11 @@ use Sinergia\Application\Port\MercadoLivre\CredentialStore;
 use Sinergia\Application\Port\MercadoLivre\MercadoLivreFailure;
 use Sinergia\Application\Port\MercadoLivre\OAuthStateRejected;
 use Sinergia\Application\Port\MercadoLivre\OAuthStateStore;
+use Sinergia\Application\Port\MercadoLivre\PendingOAuthState;
 use Sinergia\Application\Port\MercadoLivre\TokenSet;
 use Sinergia\Domain\Installation\InstallationId;
 use Sinergia\Shared\Clock\Clock;
+use Sinergia\Shared\Config\SensitiveValue;
 
 /**
  * Conclui o OAuth do Mercado Livre (callback web e `ml:oauth:finish`):
@@ -53,7 +55,75 @@ final class CompleteMercadoLivreAuthorization
         return $tokens;
     }
 
+    /**
+     * Callback web: a conta vem do PRÓPRIO state (nunca de configuração). Um state iniciado no
+     * painel só é concluído se a sessão do navegador for da MESMA conta que o iniciou.
+     *
+     * @return InstallationId conta que recebeu a conexão
+     *
+     * @throws OAuthAuthorizationFailed
+     */
+    public function completeFromCallback(OAuthCallbackParameters $params, ?InstallationId $sessionInstallation): InstallationId
+    {
+        $installation = null;
+        try {
+            $this->assertParameters($params);
+            try {
+                $pending = $this->states->consumeByState($params->state ?? throw new \LogicException(), $this->clock->now());
+            } catch (OAuthStateRejected $e) {
+                throw self::stateFailure($e);
+            }
+            $installation = $pending->installationId;
+
+            if ($pending->origin === PendingOAuthState::ORIGIN_PANEL && $sessionInstallation === null) {
+                throw new OAuthAuthorizationFailed(
+                    OAuthAuthorizationFailed::LOGIN_REQUIRED,
+                    'Entre no painel com a conta que iniciou a conexão e tente de novo. Nada foi gravado.',
+                );
+            }
+            // Com sessão aberta, ela precisa ser da conta dona do state (também para o fluxo do terminal).
+            if ($sessionInstallation !== null && !$sessionInstallation->equals($installation)) {
+                throw new OAuthAuthorizationFailed(
+                    OAuthAuthorizationFailed::ACCOUNT_MISMATCH,
+                    'Esta autorização foi iniciada por outra conta. Nada foi gravado.',
+                );
+            }
+
+            $tokens = $this->exchangeAndSave($installation, $params->code ?? throw new \LogicException(), $pending->verifier);
+        } catch (OAuthAuthorizationFailed $e) {
+            $this->logger->warning('oauth.authorization_failed', [
+                'installation_id' => $installation?->value,
+                'session_installation_id' => $sessionInstallation?->value,
+                'reason' => $e->reason,
+                'ml_error' => $e->providerError,
+            ]);
+            throw $e;
+        }
+
+        $this->logger->info('oauth.authorization_completed', [
+            'installation_id' => $installation->value,
+            'ml_user_id' => $tokens->userId,
+            'expires_in' => $tokens->expiresIn,
+        ]);
+
+        return $installation;
+    }
+
     private function doComplete(InstallationId $installation, OAuthCallbackParameters $params): TokenSet
+    {
+        $this->assertParameters($params);
+
+        try {
+            $pending = $this->states->consume($installation, $params->state ?? throw new \LogicException(), $this->clock->now());
+        } catch (OAuthStateRejected $e) {
+            throw self::stateFailure($e);
+        }
+
+        return $this->exchangeAndSave($installation, $params->code ?? throw new \LogicException(), $pending['verifier']);
+    }
+
+    /** @throws OAuthAuthorizationFailed */
+    private function assertParameters(OAuthCallbackParameters $params): void
     {
         if ($params->error !== null) {
             throw new OAuthAuthorizationFailed(
@@ -68,21 +138,24 @@ final class CompleteMercadoLivreAuthorization
                 'Retorno sem "code" e "state". Nada foi gravado.',
             );
         }
+    }
 
-        try {
-            $pending = $this->states->consume($installation, $params->state, $this->clock->now());
-        } catch (OAuthStateRejected $e) {
-            throw new OAuthAuthorizationFailed(
-                $e->reason === OAuthStateRejected::EXPIRED ? OAuthAuthorizationFailed::STATE_EXPIRED : OAuthAuthorizationFailed::STATE_UNKNOWN,
-                $e->reason === OAuthStateRejected::EXPIRED
-                    ? 'O link de autorização expirou. Gere um novo e tente de novo.'
-                    : 'Link de autorização desconhecido ou já utilizado. Gere um novo e tente de novo.',
-                previous: $e,
-            );
-        }
+    private static function stateFailure(OAuthStateRejected $e): OAuthAuthorizationFailed
+    {
+        return new OAuthAuthorizationFailed(
+            $e->reason === OAuthStateRejected::EXPIRED ? OAuthAuthorizationFailed::STATE_EXPIRED : OAuthAuthorizationFailed::STATE_UNKNOWN,
+            $e->reason === OAuthStateRejected::EXPIRED
+                ? 'O link de autorização expirou. Gere um novo e tente de novo.'
+                : 'Link de autorização desconhecido ou já utilizado. Gere um novo e tente de novo.',
+            previous: $e,
+        );
+    }
 
+    /** @throws OAuthAuthorizationFailed */
+    private function exchangeAndSave(InstallationId $installation, SensitiveValue $code, ?SensitiveValue $verifier): TokenSet
+    {
         try {
-            $tokens = $this->exchanger->exchangeCode($params->code, $pending['verifier']);
+            $tokens = $this->exchanger->exchangeCode($code, $verifier);
         } catch (MercadoLivreFailure $e) {
             throw new OAuthAuthorizationFailed(
                 OAuthAuthorizationFailed::TOKEN_EXCHANGE_FAILED,

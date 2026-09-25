@@ -14,7 +14,10 @@ use Sinergia\Shared\Config\Config;
 use Slim\Routing\RouteCollectorProxy;
 use Sinergia\Web\Action\HealthAction;
 use Sinergia\Web\Action\MercadoLivreOAuthCallbackAction;
+use Sinergia\Web\Action\Panel\ConnectionsPageAction;
 use Sinergia\Web\Action\Panel\HomeAction;
+use Sinergia\Web\Action\Panel\MediaDeclarationAction;
+use Sinergia\Web\Action\Panel\MercadoLivreConnectAction;
 use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
@@ -56,8 +59,13 @@ final class HttpApp
         $app->post('/entrar', new LoginSubmitAction($container));
         $app->group('', function (RouteCollectorProxy $panel) use ($container): void {
             foreach (array_keys(PanelPageAction::PAGES) as $slug) {
-                $panel->get('/' . $slug, new PanelPageAction($container, $slug));
+                if ($slug !== 'conexoes') {
+                    $panel->get('/' . $slug, new PanelPageAction($container, $slug));
+                }
             }
+            $panel->get('/conexoes', new ConnectionsPageAction($container));
+            $panel->post('/conexoes/mercadolivre/conectar', new MercadoLivreConnectAction($container));
+            $panel->post('/conexoes/afiliado/declaracao', new MediaDeclarationAction($container));
             $panel->post('/sair', new LogoutAction($container));
         })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));
 

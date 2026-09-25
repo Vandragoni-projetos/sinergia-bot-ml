@@ -120,3 +120,31 @@ body.panel { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-hei
     .sidebar nav { flex-direction: row; flex-wrap: wrap; margin-top: 1rem; }
     .content { padding: 1rem; }
 }
+
+/* Conexões (etapa 2) */
+h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+h3 { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+:root { --ok-soft: #e6f4ea; --ok-text: #1e6b34; --wait-soft: #fff4d6; --wait-text: #7a5300; }
+@media (prefers-color-scheme: dark) {
+    :root { --ok-soft: #173424; --ok-text: #9be3b0; --wait-soft: #3a2e10; --wait-text: #ffd98a; }
+}
+.flow li.flow-current { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+.cards { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem 1.5rem; }
+.card > p { margin-top: .75rem; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.pill { font-size: .8rem; padding: .15rem .7rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
+.pill.wait { background: var(--wait-soft); color: var(--wait-text); border-color: transparent; }
+.pill.bad { background: var(--danger-soft); color: var(--danger-text); border-color: transparent; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem 1.5rem; margin: 1rem 0 0; }
+.facts dt { font-size: .8rem; color: var(--muted); }
+.facts dd { margin: 0; font-weight: 500; }
+.actions { margin-top: 1rem; }
+button.primary-inline { background: var(--accent); border-color: var(--accent); color: #fff; }
+.subcard { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+.notice { background: var(--bg); padding: .6rem .8rem; border-radius: var(--radius); margin-top: 1rem; }
+.notice.success { background: var(--ok-soft); color: var(--ok-text); }
+.declared { margin-top: 1rem; }
+label.check { display: flex; gap: .6rem; align-items: flex-start; margin-top: 1rem; font-size: .95rem; }
+label.check input { width: auto; margin-top: .3rem; }

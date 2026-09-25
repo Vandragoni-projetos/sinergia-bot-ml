@@ -6,6 +6,7 @@ namespace Sinergia\Infrastructure\Persistence;
 
 use Sinergia\Application\Port\MercadoLivre\OAuthStateRejected;
 use Sinergia\Application\Port\MercadoLivre\OAuthStateStore;
+use Sinergia\Application\Port\MercadoLivre\PendingOAuthState;
 use Sinergia\Domain\Installation\InstallationId;
 use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Shared\Config\SensitiveValue;
@@ -24,34 +25,67 @@ final class OAuthStateRepository implements OAuthStateStore
         SensitiveValue $state,
         ?SensitiveValue $codeVerifier,
         \DateTimeImmutable $expiresAt,
+        string $origin = PendingOAuthState::ORIGIN_CLI,
+        ?int $startedByUserId = null,
     ): void {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO ml_oauth_states (installation_id, state_hash, code_verifier_enc, expires_at)
-             VALUES (:inst, :hash, :verifier, :expires)'
+            'INSERT INTO ml_oauth_states (installation_id, state_hash, code_verifier_enc, expires_at, origin, started_by_user_id)
+             VALUES (:inst, :hash, :verifier, :expires, :origin, :user)'
         );
         $stmt->execute([
             'inst' => $installation->value,
             'hash' => hash('sha256', $state->reveal()),
             'verifier' => $codeVerifier === null ? null : $this->box->encrypt($codeVerifier),
             'expires' => $expiresAt->format('Y-m-d H:i:s.v'),
+            'origin' => $origin,
+            'user' => $startedByUserId,
         ]);
     }
 
     /**
-     * Consome o state (apaga a linha). Retorna o code_verifier (ou null se PKCE desligado).
+     * Consome o state de uma conta conhecida (apaga a linha). Retorna o code_verifier (ou null).
      *
      * @return array{verifier: ?SensitiveValue}
      */
     public function consume(InstallationId $installation, SensitiveValue $state, \DateTimeImmutable $now): array
     {
-        $hash = hash('sha256', $state->reveal());
+        $row = $this->take(
+            'WHERE installation_id = :inst AND state_hash = :hash',
+            ['inst' => $installation->value, 'hash' => hash('sha256', $state->reveal())],
+            $now,
+        );
+
+        return ['verifier' => $this->verifier($row)];
+    }
+
+    public function consumeByState(SensitiveValue $state, \DateTimeImmutable $now): PendingOAuthState
+    {
+        $row = $this->take('WHERE state_hash = :hash', ['hash' => hash('sha256', $state->reveal())], $now);
+
+        return new PendingOAuthState(
+            new InstallationId((int) $row['installation_id']),
+            (string) $row['origin'],
+            $row['started_by_user_id'] === null ? null : (int) $row['started_by_user_id'],
+            $this->verifier($row),
+        );
+    }
+
+    /**
+     * Uso único: apaga a linha na mesma transação em que a lê; expirado também é apagado.
+     *
+     * @param array<string, int|string> $params
+     *
+     * @return array<string, mixed>
+     */
+    private function take(string $where, array $params, \DateTimeImmutable $now): array
+    {
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare(
-                'SELECT id, code_verifier_enc, expires_at FROM ml_oauth_states
-                 WHERE installation_id = :inst AND state_hash = :hash FOR UPDATE'
+                'SELECT id, installation_id, code_verifier_enc, expires_at, origin, started_by_user_id
+                 FROM ml_oauth_states ' . $where . ' FOR UPDATE'
             );
-            $stmt->execute(['inst' => $installation->value, 'hash' => $hash]);
+            $stmt->execute($params);
             $row = $stmt->fetch();
             if (!is_array($row)) {
                 throw OAuthStateRejected::unknown();
@@ -68,9 +102,13 @@ final class OAuthStateRepository implements OAuthStateStore
             throw OAuthStateRejected::expired();
         }
 
-        return [
-            'verifier' => $row['code_verifier_enc'] === null ? null : $this->box->decrypt((string) $row['code_verifier_enc']),
-        ];
+        return $row;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function verifier(array $row): ?SensitiveValue
+    {
+        return $row['code_verifier_enc'] === null ? null : $this->box->decrypt((string) $row['code_verifier_enc']);
     }
 
     public function purgeExpired(\DateTimeImmutable $now): int
