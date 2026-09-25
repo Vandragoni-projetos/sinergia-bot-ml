@@ -9,6 +9,8 @@ use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
+use Sinergia\Application\Auth\AuthService;
+use Sinergia\Application\Auth\PasswordHasher;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
 use Sinergia\Application\Validation\EvidenceWriter;
 use Sinergia\Application\Validation\ValidateCategory;
@@ -19,6 +21,9 @@ use Sinergia\Infrastructure\Database\ConnectionFactory;
 use Sinergia\Infrastructure\Database\Migrator;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
+use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
+use Sinergia\Infrastructure\Persistence\SessionRepository;
+use Sinergia\Infrastructure\Persistence\UserRepository;
 use Sinergia\Infrastructure\Persistence\MlCategoryRepository;
 use Sinergia\Infrastructure\Persistence\MlCredentialRepository;
 use Sinergia\Infrastructure\Persistence\OAuthStateRepository;
@@ -31,6 +36,11 @@ use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Clock\SystemClock;
 use Sinergia\Shared\Config\Config;
 use Sinergia\Shared\Logging\LoggerFactory;
+use Sinergia\Web\Security\Csrf;
+use Sinergia\Web\Security\PanelCookies;
+use Sinergia\Web\View\Views;
+use Twig\Environment as TwigEnvironment;
+use Twig\Loader\FilesystemLoader as TwigFilesystemLoader;
 
 use function DI\factory;
 
@@ -68,6 +78,30 @@ final class Kernel
                 $c->get(\PDO::class),
                 $c->get(SecretBox::class),
             )),
+
+            // Painel: acesso, sessão e visualização (F1, etapa 1).
+            UserRepository::class => factory(static fn (ContainerInterface $c) => new UserRepository($c->get(\PDO::class))),
+            SessionRepository::class => factory(static fn (ContainerInterface $c) => new SessionRepository($c->get(\PDO::class))),
+            LoginAttemptRepository::class => factory(static fn (ContainerInterface $c) => new LoginAttemptRepository($c->get(\PDO::class))),
+            PasswordHasher::class => factory(static fn () => new PasswordHasher()),
+            AuthService::class => factory(static fn (ContainerInterface $c) => new AuthService(
+                $c->get(UserRepository::class),
+                $c->get(SessionRepository::class),
+                $c->get(LoginAttemptRepository::class),
+                $c->get(PasswordHasher::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            Csrf::class => factory(static fn (Config $c) => new Csrf($c->appKey())),
+            PanelCookies::class => factory(static fn (Config $c) => new PanelCookies(!in_array($c->appEnv(), ['local', 'test'], true))),
+            Views::class => factory(static fn (ContainerInterface $c) => new Views(new TwigEnvironment(
+                new TwigFilesystemLoader($c->get('project_root') . '/templates'),
+                [
+                    'autoescape' => 'html',
+                    'strict_variables' => true,
+                    'cache' => $c->get(Config::class)->isProduction() ? $c->get('project_root') . '/storage/cache/twig' : false,
+                ],
+            ))),
 
             Installation::class => factory(static function (ContainerInterface $c): Installation {
                 $slug = $c->get(Config::class)->installationSlug();

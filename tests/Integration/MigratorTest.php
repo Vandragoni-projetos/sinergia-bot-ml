@@ -16,13 +16,13 @@ final class MigratorTest extends DatabaseTestCase
         sort($tables);
 
         self::assertSame([
-            'discovery_run_entries', 'discovery_runs', 'installations', 'ml_categories',
-            'ml_credentials', 'ml_oauth_states', 'schema_migrations',
+            'discovery_run_entries', 'discovery_runs', 'installations', 'login_attempts', 'ml_categories',
+            'ml_credentials', 'ml_oauth_states', 'schema_migrations', 'user_sessions', 'users',
         ], $tables);
 
         $second = (new Migrator($pdo, dirname(__DIR__, 2) . '/database/migrations'))->migrate();
         self::assertSame([], $second, 'Segunda execução não aplica nada.');
-        self::assertSame(['0001', '0002'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['0001', '0002', '0003'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function testDatabaseWithOnly0001IsUpgradedTo0002(): void
@@ -44,7 +44,7 @@ final class MigratorTest extends DatabaseTestCase
             self::assertSame(['0001'], (new Migrator($pdo, $dir))->migrate());
             self::assertSame('varchar', $this->scopesType($pdo));
 
-            self::assertSame(['0002'], (new Migrator($pdo, $migrations))->migrate());
+            self::assertSame(['0002', '0003'], (new Migrator($pdo, $migrations))->migrate());
             self::assertSame('text', $this->scopesType($pdo));
         } finally {
             unlink($dir . '/0001_foundation.sql');

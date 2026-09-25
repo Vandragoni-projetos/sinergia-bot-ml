@@ -1,0 +1,122 @@
+:root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --text: #1d2330;
+    --muted: #5c6475;
+    --border: #e1e4ea;
+    --accent: #1f6feb;
+    --accent-soft: #e8f0fe;
+    --accent-text: #0b4dbf;
+    --danger-soft: #fdecec;
+    --danger-text: #a01b1b;
+    --radius: 10px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #111418;
+        --surface: #1a1e24;
+        --text: #e7eaf0;
+        --muted: #9aa3b2;
+        --border: #2b313b;
+        --accent: #4c8dff;
+        --accent-soft: #1c2a44;
+        --accent-text: #9cc0ff;
+        --danger-soft: #3a1c1c;
+        --danger-text: #ffb4b4;
+    }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; line-height: 1.6; background: var(--bg); }
+h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 .25rem; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+
+button {
+    font: inherit;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: .5rem 1rem;
+    cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; margin-top: 1rem; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+input {
+    font: inherit;
+    width: 100%;
+    padding: .6rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+}
+label { display: block; font-size: .9rem; margin: .9rem 0 .3rem; }
+
+.brand { display: flex; align-items: center; gap: .6rem; font-weight: 600; }
+.brand-mark {
+    width: 2rem; height: 2rem; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent); color: #fff;
+}
+
+.alert { background: var(--danger-soft); color: var(--danger-text); padding: .6rem .8rem; border-radius: var(--radius); margin-top: 1rem; }
+
+/* Entrada */
+body.auth { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.auth-card {
+    width: 100%; max-width: 400px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 2rem;
+}
+.auth-card h1 { margin-top: 1.5rem; }
+
+/* Painel */
+body.panel { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 1.25rem 1rem; }
+.sidebar nav { margin-top: 1.75rem; display: flex; flex-direction: column; gap: .25rem; }
+.nav-item {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .55rem .7rem; border-radius: var(--radius);
+    color: var(--text); text-decoration: none;
+}
+.nav-item:hover { background: var(--bg); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.nav-step {
+    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .8rem; border: 1px solid var(--border);
+}
+.nav-item.active .nav-step { border-color: var(--accent); }
+
+.topbar {
+    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.account { font-weight: 600; }
+.content { padding: 1.5rem; max-width: 960px; }
+
+.flow { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1.5rem; font-size: .85rem; }
+.flow li { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: .2rem .8rem; color: var(--muted); }
+.flow li + li::before { content: "→ "; }
+
+.placeholder {
+    margin-top: 1.5rem; padding: 2rem;
+    border: 1px dashed var(--border); border-radius: 14px; background: var(--surface);
+    color: var(--muted);
+}
+
+@media (max-width: 720px) {
+    body.panel { grid-template-columns: 1fr; }
+    .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+    .sidebar nav { flex-direction: row; flex-wrap: wrap; margin-top: 1rem; }
+    .content { padding: 1rem; }
+}

@@ -1,0 +1,38 @@
+{% extends 'base.twig' %}
+
+{% block title %}{{ page.title }} · SINERGIA BOT ML{% endblock %}
+{% block body_class %}panel{% endblock %}
+
+{% block body %}
+<aside class="sidebar">
+    <div class="brand">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span class="brand-name">SINERGIA BOT ML</span>
+    </div>
+    <nav aria-label="Áreas do painel">
+        {% for slug, item in nav %}
+            <a href="/{{ slug }}" class="nav-item{% if slug == current %} active{% endif %}"{% if slug == current %} aria-current="page"{% endif %}>
+                <span class="nav-step">{{ loop.index }}</span>
+                <span>{{ item.title }}</span>
+            </a>
+        {% endfor %}
+    </nav>
+</aside>
+
+<div class="main">
+    <header class="topbar">
+        <div>
+            <p class="account">{{ tenant.installationName }}</p>
+            <p class="muted small">{{ tenant.userName }} · {{ tenant.userEmail }}</p>
+        </div>
+        <form method="post" action="/sair">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit">Sair</button>
+        </form>
+    </header>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+{% endblock %}

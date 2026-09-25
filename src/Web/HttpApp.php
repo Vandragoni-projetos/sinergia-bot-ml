@@ -11,10 +11,17 @@ use Psr\Log\LoggerInterface;
 use Slim\App;
 use Slim\Factory\AppFactory;
 use Sinergia\Shared\Config\Config;
+use Slim\Routing\RouteCollectorProxy;
 use Sinergia\Web\Action\HealthAction;
 use Sinergia\Web\Action\MercadoLivreOAuthCallbackAction;
+use Sinergia\Web\Action\Panel\HomeAction;
+use Sinergia\Web\Action\Panel\LoginPageAction;
+use Sinergia\Web\Action\Panel\LoginSubmitAction;
+use Sinergia\Web\Action\Panel\LogoutAction;
+use Sinergia\Web\Action\Panel\PanelPageAction;
+use Sinergia\Web\Middleware\RequireAuthMiddleware;
 
-/** Aplicação HTTP (Slim): /health e o callback OAuth do Mercado Livre. */
+/** Aplicação HTTP (Slim): /health, callback OAuth do Mercado Livre e painel. */
 final class HttpApp
 {
     public static function create(ContainerInterface $container): App
@@ -24,6 +31,7 @@ final class HttpApp
 
         AppFactory::setContainer($container);
         $app = AppFactory::create();
+        $app->addBodyParsingMiddleware();
         $app->addRoutingMiddleware();
         $app->add(new SecurityHeadersMiddleware());
 
@@ -41,6 +49,17 @@ final class HttpApp
         $app->get('/health', new HealthAction($config));
         // Precisa coincidir com o caminho de ML_REDIRECT_URI cadastrado no aplicativo do Mercado Livre.
         $app->get(MercadoLivreOAuthCallbackAction::PATH, new MercadoLivreOAuthCallbackAction($container));
+
+        // Painel: entrada pública; demais áreas exigem sessão (TenantContext).
+        $app->get('/', new HomeAction($container));
+        $app->get('/entrar', new LoginPageAction($container));
+        $app->post('/entrar', new LoginSubmitAction($container));
+        $app->group('', function (RouteCollectorProxy $panel) use ($container): void {
+            foreach (array_keys(PanelPageAction::PAGES) as $slug) {
+                $panel->get('/' . $slug, new PanelPageAction($container, $slug));
+            }
+            $panel->post('/sair', new LogoutAction($container));
+        })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));
 
         return $app;
     }

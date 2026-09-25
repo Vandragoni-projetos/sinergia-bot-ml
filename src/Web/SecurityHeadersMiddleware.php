@@ -17,6 +17,10 @@ final class SecurityHeadersMiddleware implements MiddlewareInterface
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('X-Frame-Options', 'DENY')
             ->withHeader('Referrer-Policy', 'no-referrer')
-            ->withHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+            // Painel: só CSS e imagens do próprio domínio e formulários para ele mesmo; nenhum script.
+            ->withHeader(
+                'Content-Security-Policy',
+                "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            );
     }
 }
