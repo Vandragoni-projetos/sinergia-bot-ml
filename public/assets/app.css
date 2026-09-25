@@ -163,3 +163,10 @@ fieldset.group legend { font-weight: 600; font-size: .95rem; padding: 0; }
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 1rem; }
 .field.invalid input { border-color: var(--danger-text); }
 .field-error { color: var(--danger-text); font-size: .85rem; margin-top: .25rem; }
+
+/* WhatsApp (etapa 5) */
+img.qr { display: block; margin: 1rem 0; background: #fff; padding: 8px; border-radius: var(--radius); border: 1px solid var(--border); }
+.paircode { font-size: 1.8rem; font-weight: 700; letter-spacing: .2rem; margin: 1rem 0; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.inline-form { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.inline-form .row { display: flex; gap: .5rem; }
+.inline-form .row input { flex: 1; }

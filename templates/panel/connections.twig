@@ -2,6 +2,10 @@
 
 {% set tz = 'America/Sao_Paulo' %}
 
+{% block head %}
+    {% if wa.refresh %}<meta http-equiv="refresh" content="{{ wa.refresh }};url=/conexoes#whatsapp">{% endif %}
+{% endblock %}
+
 {% block content %}
 <ol class="flow" aria-label="Como o bot funciona">
     <li class="flow-current">Conectar</li>
@@ -104,12 +108,86 @@
         </section>
     </section>
 
-    <section class="card" aria-labelledby="wa-title">
+    {% set card = wa.card %}
+    <section class="card" id="whatsapp" aria-labelledby="wa-title">
         <header class="card-head">
             <h2 id="wa-title">WhatsApp</h2>
-            <span class="pill">Em breve</span>
+            {% if card.state == 'connected' %}
+                <span class="pill ok">Conectado</span>
+            {% elseif card.state == 'waiting' %}
+                <span class="pill wait">Aguardando conexão</span>
+            {% elseif card.state == 'expired' %}
+                <span class="pill bad">QR expirado</span>
+            {% elseif card.state == 'disconnected' %}
+                <span class="pill">Desconectado</span>
+            {% elseif card.state == 'error' %}
+                <span class="pill bad">Erro</span>
+            {% elseif card.state == 'unavailable' %}
+                <span class="pill">Indisponível</span>
+            {% else %}
+                <span class="pill">Não conectado</span>
+            {% endif %}
         </header>
-        <p class="muted">A conexão do WhatsApp chega na etapa 5.</p>
+
+        {% if wa.feedback == 'desconectado' %}
+            <p class="notice" role="status">WhatsApp desconectado.</p>
+        {% elseif wa.feedback == 'aguarde' %}
+            <p class="notice" role="status">Já existe uma operação em andamento. Aguarde alguns segundos.</p>
+        {% endif %}
+        {% if wa.error %}
+            <p class="alert" role="alert">{{ wa.error }}{% if card.state != 'connected' %} Nada foi alterado.{% endif %}</p>
+        {% endif %}
+
+        {% if card.state == 'connected' %}
+            <dl class="facts">
+                <div><dt>Número</dt><dd>{{ card.phoneDisplay ?? '—' }}</dd></div>
+                <div><dt>Perfil</dt><dd>{{ card.profileName ?? '—' }}</dd></div>
+                {% if card.connectedAt %}<div><dt>Conectado em</dt><dd>{{ card.connectedAt|date('d/m/Y H:i', tz) }}</dd></div>{% endif %}
+            </dl>
+            <form method="post" action="/conexoes/whatsapp/desconectar" class="actions">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button type="submit">Desconectar</button>
+            </form>
+        {% elseif card.state == 'waiting' %}
+            {% if card.qrCode %}
+                <p>Abra o WhatsApp no celular › <strong>Aparelhos conectados</strong> › <strong>Conectar aparelho</strong> e leia o QR code.</p>
+                <img class="qr" src="{{ card.qrCode }}" alt="QR code para conectar o WhatsApp" width="264" height="264">
+            {% elseif card.pairCode %}
+                <p>No WhatsApp do celular: <strong>Aparelhos conectados</strong> › <strong>Conectar com número de telefone</strong> e digite:</p>
+                <p class="paircode">{{ card.pairCode }}</p>
+            {% else %}
+                <p>Gerando o código de conexão…</p>
+            {% endif %}
+            <p class="muted small">A página se atualiza sozinha. Este código vale por mais {{ card.secondsLeft }} segundos no máximo.</p>
+            <form method="post" action="/conexoes/whatsapp/desconectar" class="actions">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button type="submit">Cancelar</button>
+            </form>
+        {% elseif card.state == 'unavailable' %}
+            <p class="muted">A conexão do WhatsApp ainda não está disponível neste servidor.</p>
+        {% else %}
+            {% if card.state == 'expired' %}
+                <p>O código de conexão expirou sem ser lido. Gere um novo para continuar.</p>
+            {% elseif card.state == 'disconnected' %}
+                <p>O WhatsApp desta conta está desconectado. Conecte de novo para o bot publicar.</p>
+            {% else %}
+                <p>Conecte o número de WhatsApp que vai publicar as ofertas.</p>
+            {% endif %}
+            <form method="post" action="/conexoes/whatsapp/conectar" class="actions">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <input type="hidden" name="modo" value="qr">
+                <button type="submit" class="primary-inline">{{ card.state == 'not_connected' ? 'Conectar com QR code' : 'Gerar novo QR code' }}</button>
+            </form>
+            <form method="post" action="/conexoes/whatsapp/conectar" class="inline-form">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <input type="hidden" name="modo" value="codigo">
+                <label for="wa-phone">Ou receba um código de pareamento (número com DDI e DDD)</label>
+                <div class="row">
+                    <input id="wa-phone" name="telefone" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" maxlength="20">
+                    <button type="submit">Receber código</button>
+                </div>
+            </form>
+        {% endif %}
     </section>
 </div>
 {% endblock %}

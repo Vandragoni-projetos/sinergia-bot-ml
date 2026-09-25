@@ -9,6 +9,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Affiliate\MediaDeclaration;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\WhatsApp\ManageWhatsAppConnection;
+use Sinergia\Application\WhatsApp\WhatsAppCard;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
 use Sinergia\Shared\Clock\Clock;
@@ -30,6 +32,22 @@ final class ConnectionsPageAction
         'login_required' => 'Sua sessão terminou antes de concluir a conexão.',
         'account_mismatch' => 'A autorização foi iniciada por outra conta do painel.',
         'unavailable' => 'A integração com o Mercado Livre não está configurada neste servidor.',
+    ];
+
+    /** Mensagens do card WhatsApp por código (nunca o texto bruto do provedor). */
+    private const array WA_ERRORS = [
+        'unauthorized' => 'O serviço de WhatsApp recusou a autenticação do servidor.',
+        'forbidden' => 'O serviço de WhatsApp não permitiu esta operação.',
+        'not_found' => 'A conexão não foi encontrada no serviço de WhatsApp.',
+        'rate_limited' => 'O serviço de WhatsApp está no limite de conexões. Tente de novo em alguns minutos.',
+        'server_error' => 'O serviço de WhatsApp está instável no momento.',
+        'timeout' => 'O serviço de WhatsApp demorou demais para responder.',
+        'network_error' => 'Não foi possível falar com o serviço de WhatsApp.',
+        'invalid_response' => 'O serviço de WhatsApp respondeu de forma inesperada.',
+        'http_error' => 'O serviço de WhatsApp recusou a operação.',
+        'conflict' => 'Já existe uma conexão em andamento.',
+        'unavailable' => 'A integração com o WhatsApp não está configurada neste servidor.',
+        'telefone_invalido' => 'Informe o número com DDI e DDD, só números (ex.: 5511999999999).',
     ];
 
     public function __construct(private readonly ContainerInterface $container)
@@ -70,6 +88,7 @@ final class ConnectionsPageAction
                 'summary' => $summary,
                 'still_connected' => $state === 'error' && $summary !== null && $summary->isConnected(),
             ],
+            'wa' => $this->whatsApp($tenant, $query),
             'affiliate' => [
                 'mode' => $status->affiliateMode($tenant->installationId),
                 'declaration' => $this->container->get(MediaDeclarationRepository::class)->current($tenant->installationId),
@@ -77,5 +96,26 @@ final class ConnectionsPageAction
                 'feedback' => is_string($query['afiliado'] ?? null) ? $query['afiliado'] : null,
             ],
         ]);
+    }
+
+    /**
+     * @param array<array-key, mixed> $query
+     *
+     * @return array<string, mixed>
+     */
+    private function whatsApp(TenantContext $tenant, array $query): array
+    {
+        $card = $this->container->get(ManageWhatsAppConnection::class)->card($tenant);
+        $feedback = is_string($query['wa'] ?? null) ? $query['wa'] : null;
+        $reason = is_string($query['motivo'] ?? null) ? $query['motivo'] : '';
+        $errorCode = $feedback === 'erro' ? $reason : $card->errorCode;
+
+        return [
+            'card' => $card,
+            'feedback' => in_array($feedback, ['conectando', 'desconectado', 'aguarde'], true) ? $feedback : null,
+            'error' => $errorCode === null || $errorCode === '' ? null : (self::WA_ERRORS[$errorCode] ?? 'Não foi possível concluir a operação no WhatsApp.'),
+            // Atualiza a página enquanto o QR/código vale (o QR muda no provedor; nunca exibimos um antigo).
+            'refresh' => $card->state === WhatsAppCard::WAITING ? min(15, max(5, (int) $card->secondsLeft)) : null,
+        ];
     }
 }

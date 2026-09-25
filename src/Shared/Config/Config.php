@@ -158,6 +158,34 @@ final class Config
         );
     }
 
+    public function hasUazapi(): bool
+    {
+        return $this->optionalString('UAZAPI_BASE_URL') !== null && $this->optionalString('UAZAPI_ADMIN_TOKEN') !== null;
+    }
+
+    public function uazapi(): UazapiConfig
+    {
+        $missing = array_values(array_filter(
+            ['UAZAPI_BASE_URL', 'UAZAPI_ADMIN_TOKEN'],
+            fn (string $k): bool => $this->optionalString($k) === null,
+        ));
+        if ($missing !== []) {
+            throw ConfigException::missing($missing);
+        }
+
+        $url = rtrim((string) $this->optionalString('UAZAPI_BASE_URL'), '/');
+        $parts = parse_url($url);
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || !isset($parts['host']) || isset($parts['query']) || isset($parts['user'])) {
+            throw ConfigException::invalid('UAZAPI_BASE_URL', 'URL https do servidor, sem parâmetros');
+        }
+
+        return new UazapiConfig(
+            baseUrl: $url,
+            adminToken: new SensitiveValue((string) $this->optionalString('UAZAPI_ADMIN_TOKEN')),
+            timeoutSeconds: $this->int('UAZAPI_HTTP_TIMEOUT_SECONDS', 15, 1, 60),
+        );
+    }
+
     public function siteId(): string
     {
         $site = $this->optionalString('ML_SITE_ID') ?? 'MLB';

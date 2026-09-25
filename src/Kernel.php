@@ -14,6 +14,7 @@ use Sinergia\Application\Auth\PasswordHasher;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
 use Sinergia\Application\Offer\SelectOffers;
+use Sinergia\Application\WhatsApp\ManageWhatsAppConnection;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
 use Sinergia\Application\OAuth\StartMercadoLivreConnection;
 use Sinergia\Application\Validation\EvidenceWriter;
@@ -34,6 +35,7 @@ use Sinergia\Infrastructure\Persistence\OfferSelectionRepository;
 use Sinergia\Infrastructure\Persistence\PublicCatalogCacheRepository;
 use Sinergia\Infrastructure\Persistence\SessionRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
+use Sinergia\Infrastructure\Persistence\WhatsAppConnectionRepository;
 use Sinergia\Infrastructure\Persistence\MlCategoryRepository;
 use Sinergia\Infrastructure\Persistence\MlCredentialRepository;
 use Sinergia\Infrastructure\Persistence\OAuthStateRepository;
@@ -43,6 +45,7 @@ use Sinergia\Integration\MercadoLivre\Http\MercadoLivreClient;
 use Sinergia\Integration\MercadoLivre\OAuth\OAuthClient;
 use Sinergia\Integration\MercadoLivre\OAuth\StoredTokenProvider;
 use Sinergia\Integration\MercadoLivre\Product\MercadoLivreCatalogSourceFactory;
+use Sinergia\Integration\WhatsApp\Uazapi\UazapiProvider;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Clock\SystemClock;
 use Sinergia\Shared\Config\Config;
@@ -189,6 +192,35 @@ final class Kernel
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
                 $c->get(Config::class)->siteId(),
+            )),
+            // WhatsApp por conta (F1, etapa 5): provedor Uazapi atrás do contrato WhatsAppProvider.
+            'whatsapp.http' => factory(static function (Config $c) {
+                $timeout = $c->hasUazapi() ? $c->uazapi()->timeoutSeconds : 15;
+
+                return new GuzzleClient([
+                    'timeout' => $timeout,
+                    'connect_timeout' => min(5, $timeout),
+                    'http_errors' => false,
+                    'allow_redirects' => false,
+                ]);
+            }),
+            UazapiProvider::class => factory(static fn (ContainerInterface $c) => new UazapiProvider(
+                $c->get('whatsapp.http'),
+                $c->get(HttpFactory::class),
+                $c->get(HttpFactory::class),
+                $c->get(Config::class)->uazapi(),
+                $c->get(LoggerInterface::class),
+            )),
+            WhatsAppConnectionRepository::class => factory(static fn (ContainerInterface $c) => new WhatsAppConnectionRepository(
+                $c->get(\PDO::class),
+                $c->get(SecretBox::class),
+            )),
+            ManageWhatsAppConnection::class => factory(static fn (ContainerInterface $c) => new ManageWhatsAppConnection(
+                $c->get(WhatsAppConnectionRepository::class),
+                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
+                $c->get(Config::class)->hasUazapi(),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
             )),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(

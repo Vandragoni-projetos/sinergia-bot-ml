@@ -24,6 +24,7 @@ use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
 use Sinergia\Web\Action\Panel\PanelPageAction;
+use Sinergia\Web\Action\Panel\WhatsAppConnectionAction;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 
 /** Aplicação HTTP (Slim): /health, callback OAuth do Mercado Livre e painel. */
@@ -68,6 +69,8 @@ final class HttpApp
             $panel->get('/conexoes', new ConnectionsPageAction($container));
             $panel->post('/conexoes/mercadolivre/conectar', new MercadoLivreConnectAction($container));
             $panel->post('/conexoes/afiliado/declaracao', new MediaDeclarationAction($container));
+            $panel->post('/conexoes/whatsapp/conectar', new WhatsAppConnectionAction($container, WhatsAppConnectionAction::CONNECT));
+            $panel->post('/conexoes/whatsapp/desconectar', new WhatsAppConnectionAction($container, WhatsAppConnectionAction::DISCONNECT));
             $panel->get('/nichos', new NichesPageAction($container));
             $panel->post('/nichos/{nicho:[a-z0-9-]{1,64}}', new NicheSaveAction($container));
             $panel->post('/sair', new LogoutAction($container));
