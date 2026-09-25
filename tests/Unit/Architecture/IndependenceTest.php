@@ -102,7 +102,8 @@ final class IndependenceTest extends TestCase
 
     public function testOnlyOfficialApiHostsInProductionCode(): void
     {
-        $allowed = ['api.mercadolibre.com', 'auth.mercadolivre.com.br', 'example.invalid'];
+        // meli.la: domínio oficial dos links do Gerador de Links do ML (etapa 7), só VALIDADO como texto, nunca chamado.
+        $allowed = ['api.mercadolibre.com', 'auth.mercadolivre.com.br', 'example.invalid', 'meli.la'];
         $hits = [];
         foreach ($this->files(self::CODE_DIRS) as $file) {
             preg_match_all('#https?://([A-Za-z0-9.\-]+)#', (string) file_get_contents($file), $m);

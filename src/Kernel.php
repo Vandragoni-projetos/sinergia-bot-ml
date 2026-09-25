@@ -11,7 +11,11 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Sinergia\Application\Auth\AuthService;
 use Sinergia\Application\Auth\PasswordHasher;
+use Sinergia\Application\Affiliate\BatchMatcher;
+use Sinergia\Application\Affiliate\ManualBatchAffiliateLinkProvider;
+use Sinergia\Application\Affiliate\MeliLaShortLinkFormat;
 use Sinergia\Application\Destination\ManageDestinations;
+use Sinergia\Application\Port\Affiliate\AffiliateLinkProvider;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
 use Sinergia\Application\Offer\SelectOffers;
@@ -26,6 +30,7 @@ use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Infrastructure\Database\ConnectionFactory;
 use Sinergia\Infrastructure\Database\Migrator;
 use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
+use Sinergia\Infrastructure\Persistence\AffiliateLinkRepository;
 use Sinergia\Infrastructure\Persistence\DestinationRepository;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
@@ -234,6 +239,16 @@ final class Kernel
                 $c->get(LoggerInterface::class),
                 $c->get(Config::class)->whatsAppTestImageUrl(),
             )),
+            // Biblioteca de links e lotes (F1, etapa 7): manual_batch pelo Gerador oficial; nenhum link é aberto.
+            AffiliateLinkRepository::class => factory(static fn (ContainerInterface $c) => new AffiliateLinkRepository($c->get(\PDO::class))),
+            BatchMatcher::class => factory(static fn () => new BatchMatcher([new MeliLaShortLinkFormat()])),
+            ManualBatchAffiliateLinkProvider::class => factory(static fn (ContainerInterface $c) => new ManualBatchAffiliateLinkProvider(
+                $c->get(AffiliateLinkRepository::class),
+                $c->get(BatchMatcher::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            AffiliateLinkProvider::class => factory(static fn (ContainerInterface $c) => $c->get(ManualBatchAffiliateLinkProvider::class)),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(
                 $c->get(OAuthStateRepository::class),

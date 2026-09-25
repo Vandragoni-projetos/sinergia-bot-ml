@@ -14,6 +14,7 @@ use Sinergia\Shared\Config\Config;
 use Slim\Routing\RouteCollectorProxy;
 use Sinergia\Web\Action\HealthAction;
 use Sinergia\Web\Action\MercadoLivreOAuthCallbackAction;
+use Sinergia\Web\Action\Panel\AffiliateBatchAction;
 use Sinergia\Web\Action\Panel\ConnectionsPageAction;
 use Sinergia\Web\Action\Panel\DestinationAction;
 use Sinergia\Web\Action\Panel\DestinationsPageAction;
@@ -26,6 +27,7 @@ use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
 use Sinergia\Web\Action\Panel\PanelPageAction;
+use Sinergia\Web\Action\Panel\QueuePageAction;
 use Sinergia\Web\Action\Panel\WhatsAppConnectionAction;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 
@@ -64,7 +66,7 @@ final class HttpApp
         $app->post('/entrar', new LoginSubmitAction($container));
         $app->group('', function (RouteCollectorProxy $panel) use ($container): void {
             foreach (array_keys(PanelPageAction::PAGES) as $slug) {
-                if (!in_array($slug, ['conexoes', 'nichos', 'destinos'], true)) {
+                if (!in_array($slug, ['conexoes', 'nichos', 'destinos', 'fila'], true)) {
                     $panel->get('/' . $slug, new PanelPageAction($container, $slug));
                 }
             }
@@ -81,6 +83,11 @@ final class HttpApp
             foreach (['configurar' => DestinationAction::CONFIGURE, 'pausar' => DestinationAction::PAUSE, 'ativar' => DestinationAction::ACTIVATE,
                 'declarar' => DestinationAction::DECLARE, 'remover' => DestinationAction::REMOVE, 'teste' => DestinationAction::TEST] as $path => $operation) {
                 $panel->post('/destinos/{chave:[a-f0-9]{20}}/' . $path, new DestinationAction($container, $operation));
+            }
+            $panel->get('/fila', new QueuePageAction($container));
+            $panel->post('/fila/links/exportar', new AffiliateBatchAction($container, AffiliateBatchAction::EXPORT));
+            foreach (['colar' => AffiliateBatchAction::PASTE, 'confirmar' => AffiliateBatchAction::CONFIRM, 'descartar' => AffiliateBatchAction::CANCEL] as $path => $operation) {
+                $panel->post('/fila/links/{lote:[a-f0-9]{20}}/' . $path, new AffiliateBatchAction($container, $operation));
             }
             $panel->post('/sair', new LogoutAction($container));
         })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));

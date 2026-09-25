@@ -1,0 +1,107 @@
+{% extends 'panel/layout.twig' %}
+
+{% block content %}
+<ol class="flow" aria-label="Como o bot funciona">
+    <li>Conectar</li>
+    <li>O que vender</li>
+    <li>Onde publicar</li>
+    <li class="flow-current">O bot trabalha</li>
+</ol>
+
+<h1>{{ page.title }}</h1>
+<p class="muted">{{ page.lead }} Próximas publicações, aprovação e histórico chegam na etapa 8.</p>
+
+{% if notice %}<p class="notice success" role="status">{{ notice }}</p>{% endif %}
+{% if report %}
+    <p class="notice" role="status">Novos: {{ report[0] }} · substituídos: {{ report[1] }} · já existentes: {{ report[2] }} · ainda aguardando link neste lote: {{ report[3] }}.</p>
+{% endif %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+<section class="card" id="afiliados" aria-labelledby="aff-title">
+    <header class="card-head">
+        <h2 id="aff-title">Aguardando link ({{ awaiting|length }})</h2>
+        {% if not batch %}
+            <form method="post" action="/fila/links/exportar">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button type="submit" class="primary-inline"{% if awaiting is empty %} disabled{% endif %}>Copiar URLs</button>
+            </form>
+        {% endif %}
+    </header>
+
+    {% if awaiting is empty and not batch %}
+        <p class="muted">Nenhum produto aguardando link de afiliado.</p>
+    {% elseif not batch %}
+        <ul class="available">
+            {% for product in awaiting|slice(0, 50) %}<li><span>{{ product.name }}</span></li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    {% if batch %}
+        <section class="subcard">
+            <h3>1. Copie as URLs ({{ batch.items|length }} produtos)</h3>
+            <p class="muted small">Selecione tudo, copie e cole no <strong>Gerador de Links</strong> do Portal do Afiliado do Mercado Livre. As URLs não foram alteradas.</p>
+            <label for="export-urls" class="sr-only">URLs dos produtos</label>
+            <textarea id="export-urls" class="mono" rows="{{ min(batch.items|length, 12) }}" readonly>{{ batch.exportText() }}</textarea>
+        </section>
+
+        <section class="subcard">
+            <h3>2. Cole os links gerados</h3>
+            <form method="post" action="/fila/links/{{ batch.key }}/colar">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <label for="paste-links">Links gerados, um por linha, na mesma ordem</label>
+                <textarea id="paste-links" class="mono" name="links" rows="{{ min(batch.items|length + 1, 12) }}" required></textarea>
+                <div class="actions"><button type="submit">Pré-visualizar</button></div>
+            </form>
+        </section>
+
+        {% if batch.status == 'preview' %}
+        <section class="subcard">
+            <h3>3. Confira e confirme</h3>
+            {% if anomalies is not empty %}
+                <p class="alert" role="alert">Nada foi associado automaticamente: {{ anomalies|join('; ') }}. Associe manualmente cada link ao produto certo ou cole de novo.</p>
+            {% else %}
+                <p class="notice">Os links foram propostos pela ordem. Confira cada produto antes de confirmar.</p>
+            {% endif %}
+            <form method="post" action="/fila/links/{{ batch.key }}/confirmar">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <div class="table-wrap">
+                <table class="dest-table">
+                    <thead><tr><th>Linha</th><th>Link recebido</th><th>Formato</th><th>Evidência</th><th>Produto</th></tr></thead>
+                    <tbody>
+                    {% for line in lines %}
+                        <tr>
+                            <td>{{ line.no }}</td>
+                            <td class="mono">{{ line.text }}</td>
+                            <td><span class="pill{{ line.valid ? ' ok' : ' bad' }}">{{ line.format }}</span></td>
+                            <td>{{ line.evidence }}</td>
+                            <td>
+                                {% if line.valid %}
+                                    <select name="associar[{{ line.no }}]" aria-label="Produto da linha {{ line.no }}">
+                                        <option value="">Não associar</option>
+                                        {% for item in batch.items %}
+                                            <option value="{{ item.itemKey }}"{% if item.itemKey == line.proposed %} selected{% endif %}>{{ item.position }}. {{ item.productName }}</option>
+                                        {% endfor %}
+                                    </select>
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                <h4>Produtos do lote</h4>
+                <ol class="batch-items">
+                    {% for item in batch.items %}<li>{{ item.productName }} <span class="muted small mono">{{ item.originalUrl }}</span></li>{% endfor %}
+                </ol>
+                <div class="actions"><button type="submit" class="primary-inline">Confirmar associação selecionada</button></div>
+            </form>
+        </section>
+        {% endif %}
+
+        <form method="post" action="/fila/links/{{ batch.key }}/descartar" class="actions">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit">Descartar lote</button>
+        </form>
+    {% endif %}
+</section>
+{% endblock %}
