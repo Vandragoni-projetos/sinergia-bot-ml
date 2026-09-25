@@ -1,0 +1,83 @@
+{% extends 'panel/layout.twig' %}
+
+{% block content %}
+<ol class="flow" aria-label="Como o bot funciona">
+    <li>Conectar</li>
+    <li class="flow-current">O que vender</li>
+    <li>Onde publicar</li>
+    <li>O bot trabalha</li>
+</ol>
+
+<h1>{{ page.title }}</h1>
+<p class="muted">{{ page.lead }} Marque os subnichos e ajuste os filtros de cada nicho.</p>
+
+{% if unavailable %}
+    <p class="alert" role="alert">Essa opção não está mais disponível. Nada foi alterado; confira a lista e salve de novo.</p>
+{% endif %}
+
+<div class="cards">
+{% for niche in niches %}
+    <details class="card niche" id="nicho-{{ niche.slug }}"{% if niche.open %} open{% endif %}>
+        <summary class="card-head">
+            <span class="niche-title">
+                <span class="niche-name">{{ niche.name }}</span>
+                {% if niche.active > 0 %}<span class="muted small">{{ niche.summary }}</span>{% endif %}
+            </span>
+            <span class="pill{% if niche.active > 0 %} ok{% endif %}">{{ niche.active }} de {{ niche.total }} ativos</span>
+        </summary>
+
+        {% if niche.saved %}
+            <p class="notice success" role="status">{{ niche.name }}: escolhas salvas.</p>
+        {% endif %}
+        {% if niche.errors is not empty %}
+            <p class="alert" role="alert">Corrija os campos destacados. Nada foi salvo.</p>
+        {% endif %}
+
+        <form method="post" action="/nichos/{{ niche.slug }}">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+
+            <fieldset class="group">
+                <legend>Subnichos</legend>
+                <div class="checks">
+                {% for sub in niche.subniches %}
+                    <label class="check">
+                        <input type="checkbox" name="subnichos[]" value="{{ sub.slug }}"{% if sub.checked %} checked{% endif %}>
+                        <span>{{ sub.name }}</span>
+                    </label>
+                {% endfor %}
+                </div>
+            </fieldset>
+
+            <fieldset class="group">
+                <legend>Filtros</legend>
+                <div class="filters">
+                    <div class="field{% if niche.errors.desconto_minimo is defined %} invalid{% endif %}">
+                        <label for="{{ niche.slug }}-desconto">Desconto mínimo (%)</label>
+                        <input id="{{ niche.slug }}-desconto" name="desconto_minimo" inputmode="numeric" placeholder="Sem mínimo" value="{{ niche.form.desconto_minimo }}">
+                        {% if niche.errors.desconto_minimo is defined %}<p class="field-error">{{ niche.errors.desconto_minimo }}</p>{% endif %}
+                    </div>
+                    <div class="field{% if niche.errors.preco_minimo is defined %} invalid{% endif %}">
+                        <label for="{{ niche.slug }}-min">Preço mínimo (R$)</label>
+                        <input id="{{ niche.slug }}-min" name="preco_minimo" inputmode="decimal" placeholder="Sem mínimo" value="{{ niche.form.preco_minimo }}">
+                        {% if niche.errors.preco_minimo is defined %}<p class="field-error">{{ niche.errors.preco_minimo }}</p>{% endif %}
+                    </div>
+                    <div class="field{% if niche.errors.preco_maximo is defined %} invalid{% endif %}">
+                        <label for="{{ niche.slug }}-max">Preço máximo (R$)</label>
+                        <input id="{{ niche.slug }}-max" name="preco_maximo" inputmode="decimal" placeholder="Sem máximo" value="{{ niche.form.preco_maximo }}">
+                        {% if niche.errors.preco_maximo is defined %}<p class="field-error">{{ niche.errors.preco_maximo }}</p>{% endif %}
+                    </div>
+                </div>
+                <label class="check">
+                    <input type="checkbox" name="exige_foto" value="1"{% if niche.form.exige_foto %} checked{% endif %}>
+                    <span>Só produtos com foto</span>
+                </label>
+            </fieldset>
+
+            <div class="actions"><button type="submit" class="primary-inline">Salvar {{ niche.name }}</button></div>
+        </form>
+    </details>
+{% else %}
+    <section class="placeholder"><p>Nenhum nicho disponível no momento.</p></section>
+{% endfor %}
+</div>
+{% endblock %}

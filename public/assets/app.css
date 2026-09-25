@@ -148,3 +148,18 @@ button.primary-inline { background: var(--accent); border-color: var(--accent); 
 .declared { margin-top: 1rem; }
 label.check { display: flex; gap: .6rem; align-items: flex-start; margin-top: 1rem; font-size: .95rem; }
 label.check input { width: auto; margin-top: .3rem; }
+
+/* Nichos (etapa 3) */
+details.niche > summary { cursor: pointer; list-style: none; }
+details.niche > summary::-webkit-details-marker { display: none; }
+details.niche > summary::before { content: "▸"; color: var(--muted); margin-right: .5rem; }
+details.niche[open] > summary::before { content: "▾"; }
+.niche-title { display: flex; flex-direction: column; flex: 1; }
+.niche-name { font-weight: 600; font-size: 1.05rem; }
+fieldset.group { border: 0; padding: 0; margin: 1.25rem 0 0; }
+fieldset.group legend { font-weight: 600; font-size: .95rem; padding: 0; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 1rem; }
+.checks label.check { margin-top: .6rem; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 1rem; }
+.field.invalid input { border-color: var(--danger-text); }
+.field-error { color: var(--danger-text); font-size: .85rem; margin-top: .25rem; }

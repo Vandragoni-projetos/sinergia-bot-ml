@@ -11,6 +11,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Sinergia\Application\Auth\AuthService;
 use Sinergia\Application\Auth\PasswordHasher;
+use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
 use Sinergia\Application\OAuth\StartMercadoLivreConnection;
 use Sinergia\Application\Validation\EvidenceWriter;
@@ -20,11 +21,13 @@ use Sinergia\Domain\Installation\Installation;
 use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Infrastructure\Database\ConnectionFactory;
 use Sinergia\Infrastructure\Database\Migrator;
+use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
 use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
+use Sinergia\Infrastructure\Persistence\NicheCatalogRepository;
 use Sinergia\Infrastructure\Persistence\SessionRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
 use Sinergia\Infrastructure\Persistence\MlCategoryRepository;
@@ -104,6 +107,16 @@ final class Kernel
             )),
             MlConnectionStatusRepository::class => factory(static fn (ContainerInterface $c) => new MlConnectionStatusRepository($c->get(\PDO::class))),
             MediaDeclarationRepository::class => factory(static fn (ContainerInterface $c) => new MediaDeclarationRepository($c->get(\PDO::class))),
+            // Nichos: catálogo global (só leitura) + preferências privadas por conta (F1, etapa 3).
+            NicheCatalogRepository::class => factory(static fn (ContainerInterface $c) => new NicheCatalogRepository($c->get(\PDO::class))),
+            AccountNicheRepository::class => factory(static fn (ContainerInterface $c) => new AccountNicheRepository($c->get(\PDO::class))),
+            SaveNicheSelection::class => factory(static fn (ContainerInterface $c) => new SaveNicheSelection(
+                $c->get(NicheCatalogRepository::class),
+                $c->get(AccountNicheRepository::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+                $c->get(Config::class)->siteId(),
+            )),
             Csrf::class => factory(static fn (Config $c) => new Csrf($c->appKey())),
             PanelCookies::class => factory(static fn (Config $c) => new PanelCookies(!in_array($c->appEnv(), ['local', 'test'], true))),
             Views::class => factory(static fn (ContainerInterface $c) => new Views(new TwigEnvironment(

@@ -18,6 +18,8 @@ use Sinergia\Web\Action\Panel\ConnectionsPageAction;
 use Sinergia\Web\Action\Panel\HomeAction;
 use Sinergia\Web\Action\Panel\MediaDeclarationAction;
 use Sinergia\Web\Action\Panel\MercadoLivreConnectAction;
+use Sinergia\Web\Action\Panel\NicheSaveAction;
+use Sinergia\Web\Action\Panel\NichesPageAction;
 use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
@@ -59,13 +61,15 @@ final class HttpApp
         $app->post('/entrar', new LoginSubmitAction($container));
         $app->group('', function (RouteCollectorProxy $panel) use ($container): void {
             foreach (array_keys(PanelPageAction::PAGES) as $slug) {
-                if ($slug !== 'conexoes') {
+                if (!in_array($slug, ['conexoes', 'nichos'], true)) {
                     $panel->get('/' . $slug, new PanelPageAction($container, $slug));
                 }
             }
             $panel->get('/conexoes', new ConnectionsPageAction($container));
             $panel->post('/conexoes/mercadolivre/conectar', new MercadoLivreConnectAction($container));
             $panel->post('/conexoes/afiliado/declaracao', new MediaDeclarationAction($container));
+            $panel->get('/nichos', new NichesPageAction($container));
+            $panel->post('/nichos/{nicho:[a-z0-9-]{1,64}}', new NicheSaveAction($container));
             $panel->post('/sair', new LogoutAction($container));
         })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));
 
