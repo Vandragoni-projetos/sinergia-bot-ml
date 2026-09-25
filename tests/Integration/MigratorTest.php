@@ -16,14 +16,14 @@ final class MigratorTest extends DatabaseTestCase
         sort($tables);
 
         self::assertSame([
-            'account_niches', 'account_offer_candidates', 'account_subniches', 'affiliate_media_declarations', 'discovery_run_entries', 'discovery_runs', 'installations',
+            'account_niches', 'account_offer_candidates', 'account_subniches', 'affiliate_media_declarations', 'destination_subniches', 'destinations', 'discovery_run_entries', 'discovery_runs', 'installations',
             'login_attempts', 'ml_categories', 'ml_credentials', 'ml_oauth_states',
-            'ml_product_offers', 'ml_products', 'ml_ranking_entries', 'ml_ranking_snapshots', 'niches', 'offer_selection_runs', 'schema_migrations', 'subniche_categories', 'subniches', 'user_sessions', 'users', 'whatsapp_connections',
+            'ml_product_offers', 'ml_products', 'ml_ranking_entries', 'ml_ranking_snapshots', 'niches', 'offer_selection_runs', 'schema_migrations', 'subniche_categories', 'subniches', 'user_sessions', 'users', 'whatsapp_available_destinations', 'whatsapp_connections',
         ], $tables);
 
         $second = (new Migrator($pdo, dirname(__DIR__, 2) . '/database/migrations'))->migrate();
         self::assertSame([], $second, 'Segunda execução não aplica nada.');
-        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function testDatabaseWithOnly0001IsUpgradedTo0002(): void
@@ -45,7 +45,7 @@ final class MigratorTest extends DatabaseTestCase
             self::assertSame(['0001'], (new Migrator($pdo, $dir))->migrate());
             self::assertSame('varchar', $this->scopesType($pdo));
 
-            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008'], (new Migrator($pdo, $migrations))->migrate());
+            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009'], (new Migrator($pdo, $migrations))->migrate());
             self::assertSame('text', $this->scopesType($pdo));
         } finally {
             unlink($dir . '/0001_foundation.sql');

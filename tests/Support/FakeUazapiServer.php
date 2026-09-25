@@ -32,6 +32,54 @@ final class FakeUazapiServer
     public array $before = [];
     private int $counter = 0;
     private int $qrSequence = 0;
+    /** @var array<string, list<array<string, mixed>>> token → grupos no formato da Uazapi (chave "_invite" = tem link) */
+    public array $groups = [];
+    /** @var array<string, list<array<string, mixed>>> token → canais seguidos */
+    public array $channels = [];
+    /** @var list<array{token: string, body: string}> */
+    public array $sent = [];
+
+    /** Cria uma instância já conectada e devolve o token (atalho para os testes de destinos). */
+    public function connectedInstance(string $name = 'sbm-teste'): string
+    {
+        $token = sprintf('TESTE-instancia-%02d-%s', ++$this->counter, bin2hex(random_bytes(6)));
+        $this->instances[$token] = ['name' => $name, 'state' => 'connected', 'phone' => '5511987654321', 'profile' => 'Loja', 'mode' => null];
+
+        return $token;
+    }
+
+    /**
+     * Grupo no formato documentado (Group). Por padrão: somos admin, sem aprovação, só admins enviam, não é comunidade.
+     *
+     * @param array<string, mixed> $overrides
+     *
+     * @return array<string, mixed>
+     */
+    public static function group(string $jid, string $name, array $overrides = []): array
+    {
+        return $overrides + [
+            'JID' => $jid,
+            'Name' => $name,
+            'OwnerIsAdmin' => true,
+            'IsJoinApprovalRequired' => false,
+            'IsAnnounce' => true,
+            'IsParent' => false,
+            'IsDefaultSubGroup' => false,
+            'ParticipantCount' => 120,
+            '_invite' => true,
+        ];
+    }
+
+    /** @return array<string, mixed> canal no formato do whatsmeow (viewer_metadata.role) */
+    public static function channel(string $jid, string $name, ?string $role = 'owner'): array
+    {
+        $row = ['id' => $jid, 'state' => ['type' => 'active'], 'thread_metadata' => ['name' => ['text' => $name], 'subscribers_count' => '350']];
+        if ($role !== null) {
+            $row['viewer_metadata'] = ['mute' => 'off', 'role' => $role];
+        }
+
+        return $row;
+    }
 
     public function client(): Client
     {
@@ -146,6 +194,37 @@ final class FakeUazapiServer
         }
         if ($path === '/instance/status' && $request->getMethod() === 'GET') {
             return $this->json(200, $this->statusBody($instance));
+        }
+        if ($path === '/group/list') {
+            $body = json_decode((string) $request->getBody(), true);
+            $all = array_map(static fn (array $g): array => array_diff_key($g, ['_invite' => 1]), $this->groups[$token] ?? []);
+            $page = array_slice($all, (int) ($body['offset'] ?? 0), (int) ($body['limit'] ?? 50));
+
+            return $this->json(200, ['groups' => $page, 'pagination' => ['totalRecords' => count($all), 'limit' => (int) ($body['limit'] ?? 50), 'offset' => (int) ($body['offset'] ?? 0)]]);
+        }
+        if ($path === '/group/info') {
+            $body = json_decode((string) $request->getBody(), true);
+            foreach ($this->groups[$token] ?? [] as $group) {
+                if ($group['JID'] === ($body['groupjid'] ?? null)) {
+                    $invite = ($group['_invite'] ?? false) === true && ($body['getInviteLink'] ?? false) === true;
+                    $group = array_diff_key($group, ['_invite' => 1]);
+                    if ($invite) {
+                        $group['invite_link'] = 'https://chat.whatsapp.com/ConviteFicticio' . substr(md5($group['JID']), 0, 8);
+                    }
+
+                    return $this->json(200, $group);
+                }
+            }
+
+            return $this->json(404, ['error' => 'group not found or not a participant']);
+        }
+        if ($path === '/newsletter/list') {
+            return $this->json(200, ['response' => $this->channels[$token] ?? []]);
+        }
+        if ($path === '/send/media') {
+            $this->sent[] = ['token' => $token, 'body' => (string) $request->getBody()];
+
+            return $this->json(200, ['id' => 'r1', 'messageid' => '3EB0FICTICIO' . count($this->sent)]);
         }
         if ($path === '/instance/disconnect') {
             $instance['state'] = 'disconnected';

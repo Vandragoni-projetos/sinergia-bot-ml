@@ -1,0 +1,176 @@
+{% extends 'panel/layout.twig' %}
+
+{% set tz = 'America/Sao_Paulo' %}
+
+{% block content %}
+<ol class="flow" aria-label="Como o bot funciona">
+    <li>Conectar</li>
+    <li>O que vender</li>
+    <li class="flow-current">Onde publicar</li>
+    <li>O bot trabalha</li>
+</ol>
+
+<h1>{{ page.title }}</h1>
+<p class="muted">{{ page.lead }} Só canais e grupos elegíveis recebem ofertas.</p>
+
+{% if notice %}<p class="notice success" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+{% if not connected %}
+    <p class="notice" role="status">Conecte o WhatsApp em <a href="/conexoes">Conexões</a> para buscar grupos e canais.</p>
+{% endif %}
+
+<section class="card" aria-labelledby="dest-title">
+    <header class="card-head">
+        <h2 id="dest-title">Seus destinos</h2>
+        <form method="post" action="/destinos/sincronizar">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit"{% if not connected %} disabled{% endif %}>Atualizar do WhatsApp</button>
+        </form>
+    </header>
+
+    {% if rows is empty %}
+        <p class="muted">Nenhum destino ainda. Atualize a lista e adicione um canal ou grupo abaixo.</p>
+    {% else %}
+        <div class="table-wrap">
+        <table class="dest-table">
+            <thead>
+                <tr><th>Destino</th><th>Tipo</th><th>Elegibilidade</th><th>Nicho</th><th>Horário</th><th>Intervalo</th><th>Modo</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td><a href="#destino-{{ loop.index }}">{{ row.name }}</a></td>
+                    <td>{{ row.type }}</td>
+                    <td><span class="pill{{ row.eligible ? ' ok' : ' bad' }}">{{ row.label }}</span></td>
+                    <td>{{ row.niche }}</td>
+                    <td>{{ row.window }}</td>
+                    <td>{{ row.interval }}</td>
+                    <td>{{ row.mode }}</td>
+                    <td><span class="pill {{ row.status_class }}">{{ row.status }}</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    {% endif %}
+</section>
+
+{% for row in rows %}
+<details class="card niche" id="destino-{{ loop.index }}"{% if row.open %} open{% endif %}>
+    <summary class="card-head">
+        <span class="niche-title"><span class="niche-name">{{ row.name }}</span><span class="muted small">{{ row.type }} · {{ row.label }}</span></span>
+        <span class="pill {{ row.status_class }}">{{ row.status }}</span>
+    </summary>
+
+    <section class="subcard">
+        <h3>Fatos técnicos (lidos do WhatsApp)</h3>
+        <dl class="facts">
+            {% for label, value in row.facts %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+            {% if row.checked_at %}<div><dt>Verificado em</dt><dd>{{ row.checked_at|date('d/m/Y H:i', tz) }}</dd></div>{% endif %}
+        </dl>
+        <p class="muted small">Estes dados vêm do WhatsApp. Eles podem mostrar que um grupo é fechado, mas não comprovam que ele é público.</p>
+    </section>
+
+    <section class="subcard">
+        <h3>Declarações (registradas por você)</h3>
+        {% if row.is_group %}
+            {% include 'panel/_declaration.twig' with {kind: 'public_group', item: row.public, text: texts.public_group} %}
+        {% endif %}
+        {% include 'panel/_declaration.twig' with {kind: 'media_registered', item: row.media, text: texts.media_registered} %}
+    </section>
+
+    <section class="subcard">
+        <h3>Publicação</h3>
+        {% if niches is empty %}
+            <p class="muted">Ative subnichos na tela <a href="/nichos">Nichos</a> para associar a este destino.</p>
+        {% else %}
+        <form method="post" action="/destinos/{{ row.key }}/configurar">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <div class="field{% if row.errors.nicho is defined %} invalid{% endif %}">
+                <label for="nicho-{{ loop.index }}">Nicho</label>
+                <select id="nicho-{{ loop.index }}" name="nicho">
+                    <option value="">Escolha…</option>
+                    {% for niche in niches %}<option value="{{ niche.slug }}"{% if niche.slug == row.form.nicho %} selected{% endif %}>{{ niche.name }}</option>{% endfor %}
+                </select>
+                {% if row.errors.nicho is defined %}<p class="field-error">{{ row.errors.nicho }}</p>{% endif %}
+            </div>
+            <fieldset class="group">
+                <legend>Subnichos</legend>
+                {% for niche in niches %}
+                    <p class="muted small">{{ niche.name }}</p>
+                    <div class="checks">
+                    {% for sub in niche.subniches %}
+                        <label class="check"><input type="checkbox" name="subnichos[]" value="{{ sub.slug }}"{% if sub.slug in row.form.subnichos %} checked{% endif %}><span>{{ sub.name }}</span></label>
+                    {% endfor %}
+                    </div>
+                {% endfor %}
+                {% if row.errors.subnichos is defined %}<p class="field-error">{{ row.errors.subnichos }}</p>{% endif %}
+            </fieldset>
+            <div class="filters">
+                <div class="field{% if row.errors.janela is defined %} invalid{% endif %}">
+                    <label for="inicio-{{ loop.index }}">Início</label>
+                    <input id="inicio-{{ loop.index }}" name="inicio" type="time" value="{{ row.form.inicio }}">
+                </div>
+                <div class="field{% if row.errors.janela is defined %} invalid{% endif %}">
+                    <label for="fim-{{ loop.index }}">Fim</label>
+                    <input id="fim-{{ loop.index }}" name="fim" type="time" value="{{ row.form.fim }}">
+                </div>
+                <div class="field{% if row.errors.intervalo is defined %} invalid{% endif %}">
+                    <label for="intervalo-{{ loop.index }}">Intervalo (minutos)</label>
+                    <input id="intervalo-{{ loop.index }}" name="intervalo" inputmode="numeric" value="{{ row.form.intervalo }}">
+                </div>
+            </div>
+            {% if row.errors.janela is defined %}<p class="field-error">{{ row.errors.janela }}</p>{% endif %}
+            {% if row.errors.intervalo is defined %}<p class="field-error">{{ row.errors.intervalo }}</p>{% endif %}
+            <fieldset class="group">
+                <legend>Modo</legend>
+                <label class="check"><input type="radio" name="modo" value="auto"{% if row.form.modo == 'auto' %} checked{% endif %}><span>Automático — publica sozinho</span></label>
+                <label class="check"><input type="radio" name="modo" value="manual"{% if row.form.modo != 'auto' %} checked{% endif %}><span>Manual — você aprova cada publicação na Fila</span></label>
+                {% if row.errors.modo is defined %}<p class="field-error">{{ row.errors.modo }}</p>{% endif %}
+            </fieldset>
+            <div class="actions"><button type="submit" class="primary-inline">Salvar</button></div>
+        </form>
+        {% endif %}
+    </section>
+
+    <div class="actions row-actions">
+        <form method="post" action="/destinos/{{ row.key }}/{{ row.paused ? 'ativar' : 'pausar' }}">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit">{{ row.paused ? 'Ativar' : 'Pausar' }}</button>
+        </form>
+        {% if test_send and row.eligible %}
+            <form method="post" action="/destinos/{{ row.key }}/teste">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button type="submit">Enviar mensagem de teste</button>
+            </form>
+        {% endif %}
+        <form method="post" action="/destinos/{{ row.key }}/remover">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit">Remover</button>
+        </form>
+    </div>
+    {% if row.last_test %}<p class="muted small">Último teste: {{ row.last_test|date('d/m/Y H:i', tz) }}</p>{% endif %}
+</details>
+{% endfor %}
+
+<section class="card" aria-labelledby="avail-title">
+    <header class="card-head"><h2 id="avail-title">Disponíveis no seu WhatsApp</h2></header>
+    {% if available is empty %}
+        <p class="muted">Nada para adicionar. Use “Atualizar do WhatsApp” para buscar seus grupos e canais.</p>
+    {% else %}
+        <ul class="available">
+        {% for item in available %}
+            <li>
+                <span><strong>{{ item.name }}</strong> <span class="muted small">{{ item.type }}{% if item.hint %} · {{ item.hint }}{% endif %}</span></span>
+                <form method="post" action="/destinos/adicionar">
+                    <input type="hidden" name="_csrf" value="{{ csrf }}">
+                    <input type="hidden" name="escolha" value="{{ item.key }}">
+                    <button type="submit">Adicionar</button>
+                </form>
+            </li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+</section>
+{% endblock %}

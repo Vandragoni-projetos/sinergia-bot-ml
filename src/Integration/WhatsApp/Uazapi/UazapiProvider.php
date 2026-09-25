@@ -10,6 +10,7 @@ use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
+use Sinergia\Application\Port\WhatsApp\ChannelSummary;
 use Sinergia\Application\Port\WhatsApp\ConnectionSnapshot;
 use Sinergia\Application\Port\WhatsApp\GroupPage;
 use Sinergia\Application\Port\WhatsApp\GroupSummary;
@@ -26,7 +27,9 @@ use Sinergia\Shared\Config\UazapiConfig;
  *   POST /instance/connect     (token)      → QR (sem phone) ou paircode (com phone)
  *   GET  /instance/status      (token)
  *   POST /instance/disconnect  (token)
- *   POST /group/list           (token)      → etapa 6
+ *   POST /group/list           (token)      → grupos (etapa 6)
+ *   POST /group/info           (token)      → detalhes + link de convite (só admin)
+ *   GET  /newsletter/list      (token)      → canais seguidos
  *   POST /send/media           (token)      → etapa 6
  * Credenciais só em CABEÇALHOS (nunca na URL). Respostas de erro do provedor não são repassadas.
  */
@@ -94,21 +97,96 @@ final class UazapiProvider implements WhatsAppProvider
         }
         $groups = [];
         foreach ($json['groups'] as $row) {
-            if (!is_array($row) || !is_string($row['JID'] ?? null) || !str_ends_with($row['JID'], '@g.us')) {
-                continue;
+            $group = is_array($row) ? self::group($row) : null;
+            if ($group !== null) {
+                $groups[] = $group;
             }
-            $groups[] = new GroupSummary(
-                $row['JID'],
-                is_string($row['Name'] ?? null) ? mb_substr($row['Name'], 0, 120) : '',
-                is_bool($row['OwnerIsAdmin'] ?? null) ? $row['OwnerIsAdmin'] : null,
-                is_bool($row['IsJoinApprovalRequired'] ?? null) ? $row['IsJoinApprovalRequired'] : null,
-                is_bool($row['IsAnnounce'] ?? null) ? $row['IsAnnounce'] : null,
-                is_int($row['ParticipantCount'] ?? null) ? $row['ParticipantCount'] : null,
-            );
         }
         $total = $json['pagination']['totalRecords'] ?? null;
 
         return new GroupPage($groups, is_int($total) ? $total : null);
+    }
+
+    public function groupInfo(SensitiveValue $instanceToken, string $groupJid): GroupSummary
+    {
+        if (preg_match('/^[0-9-]{5,64}@g\.us$/', $groupJid) !== 1) {
+            throw new \InvalidArgumentException('JID de grupo inválido.');
+        }
+        $json = $this->send('group_info', 'POST', '/group/info', ['token' => $instanceToken], ['groupjid' => $groupJid, 'getInviteLink' => true]);
+        // A resposta é o próprio Group (ou, em algumas versões, embrulhada em "group").
+        $row = is_array($json['group'] ?? null) ? $json['group'] : $json;
+        $group = self::group($row);
+        if ($group === null || $group->jid !== $groupJid) {
+            throw new Failure(Failure::INVALID_RESPONSE, 200, null, 'group_info');
+        }
+
+        return $group;
+    }
+
+    public function listChannels(SensitiveValue $instanceToken): array
+    {
+        $json = $this->send('newsletter_list', 'GET', '/newsletter/list', ['token' => $instanceToken]);
+        $rows = $json['response'] ?? null;
+        if (!is_array($rows) || !array_is_list($rows)) {
+            throw new Failure(Failure::INVALID_RESPONSE, 200, null, 'newsletter_list');
+        }
+        $channels = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            // O schema dos itens não é documentado: aceita só o que tiver JID @newsletter explícito.
+            $jid = $row['id'] ?? $row['jid'] ?? $row['JID'] ?? null;
+            if (!is_string($jid) || preg_match('/^[0-9]{5,64}@newsletter$/', $jid) !== 1) {
+                continue;
+            }
+            $thread = is_array($row['thread_metadata'] ?? null) ? $row['thread_metadata'] : [];
+            $name = $thread['name']['text'] ?? $row['name'] ?? $row['Name'] ?? null;
+            $viewer = is_array($row['viewer_metadata'] ?? null) ? $row['viewer_metadata'] : [];
+            $role = $viewer['role'] ?? $row['role'] ?? null;
+            $role = is_string($role) ? strtolower($role) : null;
+            $channels[] = new ChannelSummary(
+                $jid,
+                is_string($name) ? mb_substr(trim($name), 0, 120) : '',
+                match ($role) {
+                    'owner', 'admin' => true,
+                    'subscriber', 'guest' => false,
+                    default => null,
+                },
+            );
+        }
+
+        return $channels;
+    }
+
+    /**
+     * Fatos do grupo. Campo ausente = desconhecido (null). A documentação avisa que OwnerIsAdmin e invite_link
+     * podem faltar mesmo quando existem/são falsos, por isso ausência nunca vira "não" nem "sim".
+     *
+     * @param array<array-key, mixed> $row
+     */
+    private static function group(array $row): ?GroupSummary
+    {
+        if (!is_string($row['JID'] ?? null) || preg_match('/^[0-9-]{5,64}@g\.us$/', $row['JID']) !== 1) {
+            return null;
+        }
+        $bool = static fn (string $key): ?bool => is_bool($row[$key] ?? null) ? $row[$key] : null;
+        $parent = $bool('IsParent');
+        $defaultSub = $bool('IsDefaultSubGroup');
+        $community = $parent === true || $defaultSub === true ? true : ($parent === false && $defaultSub === false ? false : null);
+        $invite = $row['invite_link'] ?? null;
+
+        return new GroupSummary(
+            $row['JID'],
+            is_string($row['Name'] ?? null) ? mb_substr(trim($row['Name']), 0, 120) : '',
+            $bool('OwnerIsAdmin'),
+            $bool('IsJoinApprovalRequired'),
+            $bool('IsAnnounce'),
+            is_int($row['ParticipantCount'] ?? null) ? $row['ParticipantCount'] : null,
+            $community,
+            // Só registramos SE existe link (fato); o link em si não é guardado nem acessado.
+            is_string($invite) && parse_url($invite, PHP_URL_SCHEME) === 'https' && parse_url($invite, PHP_URL_HOST) === 'chat.whatsapp.com' ? true : null,
+        );
     }
 
     public function sendImage(SensitiveValue $instanceToken, string $chatId, string $imageUrl, string $caption): SentMessage

@@ -158,6 +158,23 @@ final class Config
         );
     }
 
+    /**
+     * Envio de teste para destinos (etapa 6): DESLIGADO por padrão. Só liga com WHATSAPP_TEST_SEND_ENABLED=true
+     * e uma URL https de imagem pública em WHATSAPP_TEST_IMAGE_URL.
+     */
+    public function whatsAppTestImageUrl(): ?string
+    {
+        if (!$this->bool('WHATSAPP_TEST_SEND_ENABLED', false)) {
+            return null;
+        }
+        $url = (string) $this->optionalString('WHATSAPP_TEST_IMAGE_URL');
+        if (!str_starts_with($url, 'https://') || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            throw ConfigException::invalid('WHATSAPP_TEST_IMAGE_URL', 'URL https de uma imagem pública');
+        }
+
+        return $url;
+    }
+
     public function hasUazapi(): bool
     {
         return $this->optionalString('UAZAPI_BASE_URL') !== null && $this->optionalString('UAZAPI_ADMIN_TOKEN') !== null;

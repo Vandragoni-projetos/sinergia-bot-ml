@@ -170,3 +170,14 @@ img.qr { display: block; margin: 1rem 0; background: #fff; padding: 8px; border-
 .inline-form { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .inline-form .row { display: flex; gap: .5rem; }
 .inline-form .row input { flex: 1; }
+
+/* Destinos (etapa 6) */
+.table-wrap { overflow-x: auto; margin-top: 1rem; }
+.dest-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.dest-table th, .dest-table td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.dest-table th { font-weight: 600; color: var(--muted); font-size: .8rem; }
+.row-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.declaration { margin-top: .75rem; }
+ul.available { list-style: none; padding: 0; margin: 1rem 0 0; }
+ul.available li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid var(--border); }
+select { font: inherit; width: 100%; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }

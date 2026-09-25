@@ -114,6 +114,44 @@ final class UazapiProviderTest extends TestCase
         self::assertStringNotContainsString(FakeUazapiServer::RAW_PROVIDER_MESSAGE, (string) json_encode(array_map(static fn ($r) => $r->toArray(), $this->logs->getRecords())));
     }
 
+    public function testGroupAndChannelSignalsKeepUnknownAsNull(): void
+    {
+        $token = $this->server->connectedInstance();
+        $this->server->groups[$token] = [
+            FakeUazapiServer::group('120363000000000001@g.us', 'Aberto'),
+            ['JID' => '120363000000000002@g.us', 'Name' => 'Sem campos', '_invite' => true],
+            FakeUazapiServer::group('120363000000000003@g.us', 'Subgrupo', ['IsDefaultSubGroup' => true, 'OwnerIsAdmin' => false, '_invite' => false]),
+            ['JID' => 'lixo', 'Name' => 'ignorado'],
+        ];
+        $this->server->channels[$token] = [
+            FakeUazapiServer::channel('120363111111111111@newsletter', 'Dono', 'OWNER'),
+            FakeUazapiServer::channel('120363111111111112@newsletter', 'Seguidor', 'subscriber'),
+            FakeUazapiServer::channel('120363111111111113@newsletter', 'Sem papel', null),
+            ['id' => 'nao-e-canal@g.us'],
+        ];
+        $secret = new SensitiveValue($token);
+
+        $page = $this->provider->listGroups($secret, 50, 0);
+        self::assertCount(3, $page->groups);
+        [$open, $bare, $sub] = $page->groups;
+        self::assertSame([true, false, true, false, null], [$open->ownerIsAdmin, $open->joinApprovalRequired, $open->announceOnly, $open->isCommunity, $open->hasInviteLink], 'A listagem não traz o link.');
+        self::assertSame([null, null, null, null], [$bare->ownerIsAdmin, $bare->joinApprovalRequired, $bare->announceOnly, $bare->isCommunity]);
+        self::assertSame([false, true], [$sub->ownerIsAdmin, $sub->isCommunity]);
+        self::assertStringContainsString('"noParticipants":true', $this->server->requests[0]['body']);
+
+        $info = $this->provider->groupInfo($secret, '120363000000000001@g.us');
+        self::assertTrue($info->hasInviteLink);
+        self::assertStringContainsString('"getInviteLink":true', $this->server->requests[1]['body']);
+        self::assertNull($this->provider->groupInfo($secret, '120363000000000003@g.us')->hasInviteLink, 'Sem link na resposta = desconhecido.');
+
+        $channels = $this->provider->listChannels($secret);
+        self::assertSame(['Dono', 'Seguidor', 'Sem papel'], array_map(static fn ($c) => $c->name, $channels));
+        self::assertSame([true, false, null], array_map(static fn ($c) => $c->weAreAdmin, $channels));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->provider->groupInfo($secret, 'nao-e-jid');
+    }
+
     public function testIncompleteResponsesAreRejected(): void
     {
         $server = new class {

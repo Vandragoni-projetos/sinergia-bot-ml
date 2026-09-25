@@ -1,0 +1,20 @@
+<div class="declaration">
+    {% if item.declared %}
+        <p><strong>Declarado</strong> por {{ item.by ?? '—' }} em {{ item.at|date('d/m/Y H:i', tz) }} (versão {{ item.version }}).</p>
+        <p class="muted small">{{ text }}</p>
+        <form method="post" action="/destinos/{{ row.key }}/declarar">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="tipo" value="{{ kind }}">
+            <input type="hidden" name="valor" value="0">
+            <button type="submit">Retirar declaração</button>
+        </form>
+    {% else %}
+        <form method="post" action="/destinos/{{ row.key }}/declarar">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="tipo" value="{{ kind }}">
+            <input type="hidden" name="valor" value="1">
+            <label class="check"><input type="checkbox" name="confirmo" value="1" required><span>{{ text }}</span></label>
+            <div class="actions"><button type="submit">Registrar declaração</button></div>
+        </form>
+    {% endif %}
+</div>

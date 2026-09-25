@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Sinergia\Application\Port\WhatsApp;
 
-/** Resumo de um grupo com os sinais técnicos que a etapa 6 usa na elegibilidade. */
+/**
+ * Fatos técnicos de um grupo, como a Uazapi os informa. null = o provedor NÃO informou (desconhecido);
+ * nunca é convertido em "sim" ou "não".
+ */
 final readonly class GroupSummary
 {
     public function __construct(
@@ -14,6 +17,8 @@ final readonly class GroupSummary
         public ?bool $joinApprovalRequired,
         public ?bool $announceOnly,
         public ?int $participants,
+        public ?bool $isCommunity = null,
+        public ?bool $hasInviteLink = null,
     ) {
     }
 }

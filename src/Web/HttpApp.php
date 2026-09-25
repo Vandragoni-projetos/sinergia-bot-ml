@@ -15,6 +15,8 @@ use Slim\Routing\RouteCollectorProxy;
 use Sinergia\Web\Action\HealthAction;
 use Sinergia\Web\Action\MercadoLivreOAuthCallbackAction;
 use Sinergia\Web\Action\Panel\ConnectionsPageAction;
+use Sinergia\Web\Action\Panel\DestinationAction;
+use Sinergia\Web\Action\Panel\DestinationsPageAction;
 use Sinergia\Web\Action\Panel\HomeAction;
 use Sinergia\Web\Action\Panel\MediaDeclarationAction;
 use Sinergia\Web\Action\Panel\MercadoLivreConnectAction;
@@ -62,7 +64,7 @@ final class HttpApp
         $app->post('/entrar', new LoginSubmitAction($container));
         $app->group('', function (RouteCollectorProxy $panel) use ($container): void {
             foreach (array_keys(PanelPageAction::PAGES) as $slug) {
-                if (!in_array($slug, ['conexoes', 'nichos'], true)) {
+                if (!in_array($slug, ['conexoes', 'nichos', 'destinos'], true)) {
                     $panel->get('/' . $slug, new PanelPageAction($container, $slug));
                 }
             }
@@ -73,6 +75,13 @@ final class HttpApp
             $panel->post('/conexoes/whatsapp/desconectar', new WhatsAppConnectionAction($container, WhatsAppConnectionAction::DISCONNECT));
             $panel->get('/nichos', new NichesPageAction($container));
             $panel->post('/nichos/{nicho:[a-z0-9-]{1,64}}', new NicheSaveAction($container));
+            $panel->get('/destinos', new DestinationsPageAction($container));
+            $panel->post('/destinos/sincronizar', new DestinationAction($container, DestinationAction::SYNC));
+            $panel->post('/destinos/adicionar', new DestinationAction($container, DestinationAction::ADD));
+            foreach (['configurar' => DestinationAction::CONFIGURE, 'pausar' => DestinationAction::PAUSE, 'ativar' => DestinationAction::ACTIVATE,
+                'declarar' => DestinationAction::DECLARE, 'remover' => DestinationAction::REMOVE, 'teste' => DestinationAction::TEST] as $path => $operation) {
+                $panel->post('/destinos/{chave:[a-f0-9]{20}}/' . $path, new DestinationAction($container, $operation));
+            }
             $panel->post('/sair', new LogoutAction($container));
         })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));
 

@@ -11,6 +11,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Sinergia\Application\Auth\AuthService;
 use Sinergia\Application\Auth\PasswordHasher;
+use Sinergia\Application\Destination\ManageDestinations;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
 use Sinergia\Application\Offer\SelectOffers;
@@ -25,6 +26,7 @@ use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Infrastructure\Database\ConnectionFactory;
 use Sinergia\Infrastructure\Database\Migrator;
 use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
+use Sinergia\Infrastructure\Persistence\DestinationRepository;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
 use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
@@ -221,6 +223,16 @@ final class Kernel
                 $c->get(Config::class)->hasUazapi(),
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
+            )),
+            // Destinos (F1, etapa 6): só da própria conexão WhatsApp da conta.
+            DestinationRepository::class => factory(static fn (ContainerInterface $c) => new DestinationRepository($c->get(\PDO::class))),
+            ManageDestinations::class => factory(static fn (ContainerInterface $c) => new ManageDestinations(
+                $c->get(DestinationRepository::class),
+                $c->get(WhatsAppConnectionRepository::class),
+                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+                $c->get(Config::class)->whatsAppTestImageUrl(),
             )),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(
