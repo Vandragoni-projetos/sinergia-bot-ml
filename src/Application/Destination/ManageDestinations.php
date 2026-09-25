@@ -11,6 +11,7 @@ use Sinergia\Application\Port\WhatsApp\GroupSummary;
 use Sinergia\Application\Port\WhatsApp\WhatsAppConnectionStore;
 use Sinergia\Application\Port\WhatsApp\WhatsAppProvider;
 use Sinergia\Application\Port\WhatsApp\WhatsAppProviderFailure;
+use Sinergia\Domain\Installation\InstallationId;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Config\SensitiveValue;
 
@@ -51,7 +52,27 @@ final class ManageDestinations
      */
     public function sync(TenantContext $tenant): int
     {
-        $token = $this->token($tenant);
+        return $this->syncInstallation($tenant->installationId);
+    }
+
+    /**
+     * Revalidação periódica pelo worker (≈ 6 h): mesma sincronização, para UMA conta, com o token dela.
+     *
+     * @throws DestinationRejected
+     * @throws WhatsAppProviderFailure
+     */
+    public function revalidate(InstallationId $installation): int
+    {
+        return $this->syncInstallation($installation);
+    }
+
+    /**
+     * @throws DestinationRejected
+     * @throws WhatsAppProviderFailure
+     */
+    private function syncInstallation(InstallationId $installation): int
+    {
+        $token = $this->token($installation);
         $provider = ($this->provider)();
         $now = $this->clock->now();
 
@@ -81,7 +102,7 @@ final class ManageDestinations
         }
 
         // Atualiza os destinos cadastrados; grupos presentes são reconsultados em /group/info (link de convite).
-        foreach ($this->store->all($tenant->installationId) as $destination) {
+        foreach ($this->store->all($installation) as $destination) {
             if ($destination->type === 'channel') {
                 $channel = $channels[$destination->providerRef] ?? null;
                 $facts = $channel === null
@@ -96,13 +117,13 @@ final class ManageDestinations
                 $facts = $complete ? self::withPresence($destination->facts, false) : $destination->facts;
                 $name = $destination->name;
             }
-            $this->store->updateFacts($tenant->installationId, $destination->id, $name !== '' ? $name : $destination->name, $facts, $now);
-            $this->reevaluate($tenant, $destination->id);
+            $this->store->updateFacts($installation, $destination->id, $name !== '' ? $name : $destination->name, $facts, $now);
+            $this->reevaluate($installation, $destination->id);
         }
 
-        $this->store->replaceAvailable($tenant->installationId, $available, $now);
+        $this->store->replaceAvailable($installation, $available, $now);
         $this->logger->info('destinations.synced', [
-            'installation_id' => $tenant->installationId->value, 'groups' => count($groups), 'channels' => count($channels), 'complete' => $complete,
+            'installation_id' => $installation->value, 'groups' => count($groups), 'channels' => count($channels), 'complete' => $complete,
         ]);
 
         return count($available);
@@ -120,7 +141,7 @@ final class ManageDestinations
         if ($candidate === null) {
             throw new DestinationRejected(DestinationRejected::NOT_FOUND);
         }
-        $token = $this->token($tenant);
+        $token = $this->token($tenant->installationId);
         $provider = ($this->provider)();
 
         // Reconsulta com o token DA CONTA antes de gravar: confirma que o destino é da própria conexão.
@@ -150,7 +171,7 @@ final class ManageDestinations
         }
 
         $record = $this->store->add($tenant->installationId, $candidate->type, $candidate->providerRef, $name !== '' ? $name : 'Sem nome', $facts, $tenant->userId, $this->clock->now());
-        $this->reevaluate($tenant, $record->id);
+        $this->reevaluate($tenant->installationId, $record->id);
         $this->logger->info('destinations.added', ['installation_id' => $tenant->installationId->value, 'type' => $candidate->type]);
 
         return $this->store->byPublicKey($tenant->installationId, $record->publicKey) ?? $record;
@@ -186,7 +207,7 @@ final class ManageDestinations
         }
 
         $this->store->updateSettings($tenant->installationId, $destination->id, $niche['id'], $ids, $settings->mode, $settings->windowStart, $settings->windowEnd, $settings->intervalMinutes, $this->clock->now());
-        $this->reevaluate($tenant, $destination->id);
+        $this->reevaluate($tenant->installationId, $destination->id);
     }
 
     /** @throws DestinationRejected */
@@ -202,7 +223,7 @@ final class ManageDestinations
             }
         }
         $this->store->setPaused($tenant->installationId, $destination->id, $paused, $this->clock->now());
-        $this->reevaluate($tenant, $destination->id);
+        $this->reevaluate($tenant->installationId, $destination->id);
     }
 
     /** @throws DestinationRejected */
@@ -216,7 +237,7 @@ final class ManageDestinations
             throw new DestinationRejected(DestinationRejected::NOT_A_GROUP);
         }
         $this->store->setDeclaration($tenant->installationId, $destination->id, $kind, $declared, $tenant->userId, DestinationDeclarations::VERSION, $this->clock->now());
-        $this->reevaluate($tenant, $destination->id);
+        $this->reevaluate($tenant->installationId, $destination->id);
         $this->logger->info('destinations.declaration', [
             'installation_id' => $tenant->installationId->value, 'user_id' => $tenant->userId, 'kind' => $kind, 'declared' => $declared, 'version' => DestinationDeclarations::VERSION,
         ]);
@@ -243,9 +264,23 @@ final class ManageDestinations
         if (!$destination->eligibility()->isEligible()) {
             throw new DestinationRejected(DestinationRejected::NOT_ELIGIBLE);
         }
-        ($this->provider)()->sendImage($this->token($tenant), $destination->providerRef, $this->testImageUrl, self::TEST_CAPTION);
+        ($this->provider)()->sendImage($this->token($tenant->installationId), $destination->providerRef, $this->testImageUrl, self::TEST_CAPTION);
         $this->store->markTestSent($tenant->installationId, $destination->id, $this->clock->now());
         $this->logger->info('destinations.test_sent', ['installation_id' => $tenant->installationId->value, 'type' => $destination->type]);
+    }
+
+    /**
+     * O provedor respondeu 404 ao enviar: o destino deixa de estar presente e fica inelegível na hora
+     * (a próxima sincronização o reativa se ele voltar a aparecer no WhatsApp da conta).
+     */
+    public function markMissing(InstallationId $installation, int $destinationId): void
+    {
+        foreach ($this->store->all($installation) as $destination) {
+            if ($destination->id === $destinationId) {
+                $this->store->updateFacts($installation, $destination->id, $destination->name, self::withPresence($destination->facts, false), $this->clock->now());
+                $this->reevaluate($installation, $destination->id);
+            }
+        }
     }
 
     /** @throws DestinationRejected */
@@ -256,9 +291,9 @@ final class ManageDestinations
         return $destination ?? throw new DestinationRejected(DestinationRejected::NOT_FOUND);
     }
 
-    private function reevaluate(TenantContext $tenant, int $id): void
+    private function reevaluate(InstallationId $installation, int $id): void
     {
-        foreach ($this->store->all($tenant->installationId) as $destination) {
+        foreach ($this->store->all($installation) as $destination) {
             if ($destination->id !== $id) {
                 continue;
             }
@@ -268,14 +303,14 @@ final class ManageDestinations
                 $destination->userPaused || !$destination->isConfigured() => 'paused',
                 default => 'active',
             };
-            $this->store->saveEvaluation($tenant->installationId, $id, $eligibility, $status, $this->clock->now());
+            $this->store->saveEvaluation($installation, $id, $eligibility, $status, $this->clock->now());
         }
     }
 
     /** @throws DestinationRejected */
-    private function token(TenantContext $tenant): SensitiveValue
+    private function token(InstallationId $installation): SensitiveValue
     {
-        $connection = $this->connections->find($tenant->installationId);
+        $connection = $this->connections->find($installation);
         if ($connection === null || $connection->token === null || $connection->status !== 'connected') {
             throw new DestinationRejected(DestinationRejected::WHATSAPP_NOT_CONNECTED);
         }

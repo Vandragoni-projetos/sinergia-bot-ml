@@ -8,14 +8,81 @@
     <li class="flow-current">O bot trabalha</li>
 </ol>
 
+{% set tz = 'America/Sao_Paulo' %}
 <h1>{{ page.title }}</h1>
-<p class="muted">{{ page.lead }} Próximas publicações, aprovação e histórico chegam na etapa 8.</p>
+<p class="muted">{{ page.lead }}</p>
 
 {% if notice %}<p class="notice success" role="status">{{ notice }}</p>{% endif %}
 {% if report %}
     <p class="notice" role="status">Novos: {{ report[0] }} · substituídos: {{ report[1] }} · já existentes: {{ report[2] }} · ainda aguardando link neste lote: {{ report[3] }}.</p>
 {% endif %}
 {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+<section class="card" aria-labelledby="bot-title">
+    <header class="card-head">
+        <span class="niche-title">
+            <h2 id="bot-title">{% if queue.bot_active %}● Bot trabalhando{% else %}Bot pausado{% endif %}</h2>
+            <span class="muted small">{% if queue.last_beat %}Último sinal do worker: {{ queue.last_beat|date('d/m/Y H:i', tz) }}{% else %}Worker ainda sem sinal{% endif %}</span>
+        </span>
+        <form method="post" action="/fila/bot/{{ queue.bot_active ? 'pausar' : 'ativar' }}">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit"{% if not queue.bot_active %} class="primary-inline"{% endif %}>{{ queue.bot_active ? 'Pausar bot' : 'Ativar bot' }}</button>
+        </form>
+    </header>
+    {% if not queue.bot_active %}<p class="muted small">Com o bot pausado nada é enviado. Fila, links, destinos e configurações continuam guardados.</p>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="pending-title">
+    <header class="card-head"><h2 id="pending-title">Aguardando aprovação ({{ queue.pending|length }})</h2></header>
+    {% if queue.pending is empty %}
+        <p class="muted">Nada aguardando aprovação.</p>
+    {% else %}
+        <div class="table-wrap"><table class="dest-table">
+            <thead><tr><th>Previsto</th><th>Destino</th><th>Produto</th><th>Preço planejado</th><th></th></tr></thead>
+            <tbody>
+            {% for item in queue.pending %}
+                <tr>
+                    <td>{{ item.when|date('d/m H:i', tz) }}</td>
+                    <td>{{ item.destination }}</td>
+                    <td>{{ item.product }}</td>
+                    <td>R$ {{ (item.price / 100)|number_format(2, ',', '.') }}{% if item.original %} <span class="muted small">(−{{ item.discount }}%)</span>{% endif %}</td>
+                    <td class="row-actions">
+                        <form method="post" action="/fila/itens/{{ item.key }}/aprovar"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit" class="primary-inline">Aprovar</button></form>
+                        <form method="post" action="/fila/itens/{{ item.key }}/pular"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">Pular</button></form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+        <p class="muted small">O preço é conferido de novo na hora do envio; a mensagem sai com o preço atual.</p>
+    {% endif %}
+</section>
+
+<section class="card" aria-labelledby="next-title">
+    <header class="card-head"><h2 id="next-title">Próximas ({{ queue.upcoming|length }})</h2></header>
+    {% if queue.upcoming is empty %}
+        <p class="muted">Nenhuma publicação agendada.</p>
+    {% else %}
+        <div class="table-wrap"><table class="dest-table">
+            <thead><tr><th>Horário</th><th>Destino</th><th>Produto</th><th>Preço planejado</th><th></th></tr></thead>
+            <tbody>
+            {% for item in queue.upcoming %}
+                <tr>
+                    <td>{{ item.when|date('d/m H:i', tz) }}</td>
+                    <td>{{ item.destination }}</td>
+                    <td>{{ item.product }}</td>
+                    <td>R$ {{ (item.price / 100)|number_format(2, ',', '.') }}{% if item.original %} <span class="muted small">(−{{ item.discount }}%)</span>{% endif %}</td>
+                    <td>{% if item.status == 'sending' %}<span class="pill wait">Enviando</span>{% else %}
+                        <form method="post" action="/fila/itens/{{ item.key }}/pular"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">Pular</button></form>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+    {% endif %}
+    {% if queue.awaiting is not empty %}
+        <p class="muted small">{{ queue.awaiting|length }} publicação(ões) planejada(s) aguardando link de afiliado — veja abaixo.</p>
+    {% endif %}
+</section>
 
 <section class="card" id="afiliados" aria-labelledby="aff-title">
     <header class="card-head">
@@ -102,6 +169,34 @@
             <input type="hidden" name="_csrf" value="{{ csrf }}">
             <button type="submit">Descartar lote</button>
         </form>
+    {% endif %}
+</section>
+
+<section class="card" aria-labelledby="sent-title">
+    <header class="card-head"><h2 id="sent-title">Enviadas e encerradas</h2></header>
+    {% if queue.history is empty %}
+        <p class="muted">Nenhuma publicação ainda.</p>
+    {% else %}
+        <div class="table-wrap"><table class="dest-table">
+            <thead><tr><th>Quando</th><th>Destino</th><th>Produto</th><th>Preço</th><th>Situação</th></tr></thead>
+            <tbody>
+            {% for item in queue.history %}
+                <tr>
+                    <td>{{ item.when|date('d/m H:i', tz) }}</td>
+                    <td>{{ item.destination }}</td>
+                    <td>{{ item.product }}</td>
+                    <td>R$ {{ (item.price / 100)|number_format(2, ',', '.') }}</td>
+                    <td>
+                        {% if item.status == 'sent' %}<span class="pill ok">Enviada</span>
+                        {% elseif item.status == 'skipped' %}<span class="pill">Pulada</span>
+                        {% elseif item.status == 'cancelled' %}<span class="pill">Cancelada</span>
+                        {% else %}<span class="pill bad">Falhou</span>{% endif %}
+                        {% if item.reason %}<span class="muted small">{{ item.reason }}</span>{% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
     {% endif %}
 </section>
 {% endblock %}

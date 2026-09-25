@@ -11,14 +11,15 @@ use Sinergia\Application\Affiliate\BatchPreview;
 use Sinergia\Application\Affiliate\ReceivedLine;
 use Sinergia\Application\Auth\TenantContext;
 use Sinergia\Infrastructure\Persistence\AffiliateLinkRepository;
+use Sinergia\Infrastructure\Persistence\DispatchQueueRepository;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 use Sinergia\Web\Security\Csrf;
 use Sinergia\Web\View\Views;
 
 /**
- * GET /fila — na etapa 7, só o bloco de afiliados: "Aguardando link (N)", Copiar URLs, Colar links gerados,
- * pré-visualização e confirmação. Planejamento, agendamento e envio chegam na etapa 8.
+ * GET /fila — Pausar/Ativar bot, Próximas, Aguardando aprovação (Aprovar/Pular), Aguardando link (lote pelo Gerador
+ * oficial: Copiar URLs, Colar, pré-visualizar, confirmar) e Enviadas. Sem ids internos, JIDs, links ou tokens.
  */
 final class QueuePageAction
 {
@@ -34,6 +35,21 @@ final class QueuePageAction
         'unknown_item' => 'Produto inválido para este lote.',
         'item_twice' => 'Cada produto só pode receber um link.',
         'id_conflict' => 'O link indica outro produto e não pode ser associado a este.',
+        'item_not_found' => 'Item não encontrado ou já decidido.',
+    ];
+
+    /** Motivos exibíveis de itens não enviados (códigos internos → texto). */
+    public const array ITEM_REASONS = [
+        'destination_not_found' => 'o destino não existe mais no WhatsApp',
+        'product_unavailable' => 'o produto não está mais disponível',
+        'no_offer' => 'o produto está sem oferta',
+        'product_inactive' => 'o produto foi desativado',
+        'no_photo' => 'o produto está sem foto',
+        'no_permalink' => 'o produto está sem página',
+        'filters_no_longer_match' => 'o preço ou desconto atual saiu dos filtros',
+        'max_attempts' => 'limite de tentativas atingido',
+        'interrupted_unknown_outcome' => 'envio interrompido; confira no WhatsApp se a mensagem saiu',
+        'destination_removed' => 'o destino foi removido',
     ];
 
     private const array SUCCESS = [
@@ -41,6 +57,10 @@ final class QueuePageAction
         'previa' => 'Confira a pré-visualização. Nada foi gravado ainda.',
         'confirmado' => 'Links gravados na biblioteca.',
         'descartado' => 'Lote descartado. Nada foi gravado.',
+        'aprovado' => 'Publicação aprovada.',
+        'pulado' => 'Item pulado. Este produto não volta para este destino.',
+        'bot_pausado' => 'Bot pausado. Nada é enviado; fila, links e destinos foram mantidos.',
+        'bot_ativado' => 'Bot ativado.',
     ];
 
     public const array FORMAT = [
@@ -102,7 +122,13 @@ final class QueuePageAction
             ];
         }
 
+        $overview = $this->container->get(DispatchQueueRepository::class)->overview($tenant->installationId);
+        foreach ($overview['history'] as $i => $row) {
+            $overview['history'][$i]['reason'] = self::reason($row['error']);
+        }
+
         return $this->container->get(Views::class)->render($response, 'panel/queue.twig', [
+            'queue' => $overview,
             'tenant' => $tenant,
             'current' => 'fila',
             'nav' => PanelPageAction::PAGES,
@@ -116,5 +142,20 @@ final class QueuePageAction
             'report' => is_string($query['resumo'] ?? null) && preg_match('/^\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3}$/', $query['resumo']) === 1 ? explode('-', $query['resumo']) : null,
             'error' => $error === null ? null : (self::MESSAGES[$error] ?? 'Não foi possível concluir a operação.'),
         ]);
+    }
+
+    private static function reason(?string $error): ?string
+    {
+        if ($error === null) {
+            return null;
+        }
+        if (str_starts_with($error, 'unknown_outcome')) {
+            return 'resultado incerto (sem reenvio para não duplicar); confira no WhatsApp';
+        }
+        if (str_ends_with($error, '_max_attempts')) {
+            return 'o WhatsApp recusou o envio várias vezes';
+        }
+
+        return self::ITEM_REASONS[$error] ?? null;
     }
 }

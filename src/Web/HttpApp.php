@@ -27,6 +27,7 @@ use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
 use Sinergia\Web\Action\Panel\PanelPageAction;
+use Sinergia\Web\Action\Panel\QueueAction;
 use Sinergia\Web\Action\Panel\QueuePageAction;
 use Sinergia\Web\Action\Panel\WhatsAppConnectionAction;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
@@ -89,6 +90,10 @@ final class HttpApp
             foreach (['colar' => AffiliateBatchAction::PASTE, 'confirmar' => AffiliateBatchAction::CONFIRM, 'descartar' => AffiliateBatchAction::CANCEL] as $path => $operation) {
                 $panel->post('/fila/links/{lote:[a-f0-9]{20}}/' . $path, new AffiliateBatchAction($container, $operation));
             }
+            $panel->post('/fila/bot/pausar', new QueueAction($container, QueueAction::PAUSE));
+            $panel->post('/fila/bot/ativar', new QueueAction($container, QueueAction::ACTIVATE));
+            $panel->post('/fila/itens/{item:[a-f0-9]{20}}/aprovar', new QueueAction($container, QueueAction::APPROVE));
+            $panel->post('/fila/itens/{item:[a-f0-9]{20}}/pular', new QueueAction($container, QueueAction::SKIP));
             $panel->post('/sair', new LogoutAction($container));
         })->add(new RequireAuthMiddleware($container, $app->getResponseFactory()));
 

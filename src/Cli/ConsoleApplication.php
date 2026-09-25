@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sinergia\Cli;
 
 use Sinergia\Cli\Command\AppKeyGenerateCommand;
+use Sinergia\Cli\Command\BotWorkerCommand;
 use Sinergia\Cli\Command\CategoryCheckCommand;
 use Sinergia\Cli\Command\HighlightsCheckCommand;
 use Sinergia\Cli\Command\InstallationEnsureCommand;
@@ -37,6 +38,7 @@ final class ConsoleApplication
             new CategoryCheckCommand($container),
             new HighlightsCheckCommand($container),
             new OffersSelectCommand($container),
+            new BotWorkerCommand($container),
         ]);
 
         return $app;

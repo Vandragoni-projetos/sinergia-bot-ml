@@ -18,6 +18,11 @@ use Sinergia\Application\Destination\ManageDestinations;
 use Sinergia\Application\Port\Affiliate\AffiliateLinkProvider;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
+use Sinergia\Application\Queue\BotWorker;
+use Sinergia\Application\Queue\ManageQueue;
+use Sinergia\Application\Queue\MessageBuilder;
+use Sinergia\Application\Queue\QueuePlanner;
+use Sinergia\Application\Queue\QueueSender;
 use Sinergia\Application\Offer\SelectOffers;
 use Sinergia\Application\WhatsApp\ManageWhatsAppConnection;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
@@ -33,6 +38,7 @@ use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
 use Sinergia\Infrastructure\Persistence\AffiliateLinkRepository;
 use Sinergia\Infrastructure\Persistence\DestinationRepository;
 use Sinergia\Infrastructure\Persistence\DiscoveryRunRepository;
+use Sinergia\Infrastructure\Persistence\DispatchQueueRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
 use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
@@ -249,6 +255,39 @@ final class Kernel
                 $c->get(LoggerInterface::class),
             )),
             AffiliateLinkProvider::class => factory(static fn (ContainerInterface $c) => $c->get(ManualBatchAffiliateLinkProvider::class)),
+            // Fila, planejamento, envio e worker (F1, etapa 8): envio SÓ pelo WhatsAppProvider, com dados da conta do item.
+            DispatchQueueRepository::class => factory(static fn (ContainerInterface $c) => new DispatchQueueRepository($c->get(\PDO::class))),
+            QueuePlanner::class => factory(static fn (ContainerInterface $c) => new QueuePlanner(
+                $c->get(DispatchQueueRepository::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            QueueSender::class => factory(static fn (ContainerInterface $c) => new QueueSender(
+                $c->get(DispatchQueueRepository::class),
+                $c->get(WhatsAppConnectionRepository::class),
+                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
+                $c->get(MercadoLivreCatalogSourceFactory::class),
+                new OfferChooser(),
+                new MessageBuilder(),
+                $c->get(ManageDestinations::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            BotWorker::class => factory(static fn (ContainerInterface $c) => new BotWorker(
+                $c->get(DispatchQueueRepository::class),
+                $c->get(QueuePlanner::class),
+                $c->get(QueueSender::class),
+                $c->get(ManageDestinations::class),
+                $c->get(SelectOffers::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            ManageQueue::class => factory(static fn (ContainerInterface $c) => new ManageQueue(
+                $c->get(DispatchQueueRepository::class),
+                $c->get(DispatchQueueRepository::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(
                 $c->get(OAuthStateRepository::class),
