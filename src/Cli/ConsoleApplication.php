@@ -13,6 +13,7 @@ use Sinergia\Cli\Command\OAuthFinishCommand;
 use Sinergia\Cli\Command\OAuthRefreshCommand;
 use Sinergia\Cli\Command\OAuthStartCommand;
 use Sinergia\Cli\Command\OAuthStatusCommand;
+use Sinergia\Cli\Command\OffersSelectCommand;
 use Sinergia\Cli\Command\UserCreateCommand;
 use Sinergia\Kernel;
 use Sinergia\Shared\Config\Config;
@@ -35,6 +36,7 @@ final class ConsoleApplication
             new OAuthRefreshCommand($container),
             new CategoryCheckCommand($container),
             new HighlightsCheckCommand($container),
+            new OffersSelectCommand($container),
         ]);
 
         return $app;

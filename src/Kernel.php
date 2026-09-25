@@ -12,6 +12,8 @@ use Psr\Log\LoggerInterface;
 use Sinergia\Application\Auth\AuthService;
 use Sinergia\Application\Auth\PasswordHasher;
 use Sinergia\Application\Niche\SaveNicheSelection;
+use Sinergia\Application\Offer\OfferChooser;
+use Sinergia\Application\Offer\SelectOffers;
 use Sinergia\Application\OAuth\CompleteMercadoLivreAuthorization;
 use Sinergia\Application\OAuth\StartMercadoLivreConnection;
 use Sinergia\Application\Validation\EvidenceWriter;
@@ -28,6 +30,8 @@ use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
 use Sinergia\Infrastructure\Persistence\NicheCatalogRepository;
+use Sinergia\Infrastructure\Persistence\OfferSelectionRepository;
+use Sinergia\Infrastructure\Persistence\PublicCatalogCacheRepository;
 use Sinergia\Infrastructure\Persistence\SessionRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
 use Sinergia\Infrastructure\Persistence\MlCategoryRepository;
@@ -38,6 +42,7 @@ use Sinergia\Integration\MercadoLivre\Highlight\HighlightService;
 use Sinergia\Integration\MercadoLivre\Http\MercadoLivreClient;
 use Sinergia\Integration\MercadoLivre\OAuth\OAuthClient;
 use Sinergia\Integration\MercadoLivre\OAuth\StoredTokenProvider;
+use Sinergia\Integration\MercadoLivre\Product\MercadoLivreCatalogSourceFactory;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Clock\SystemClock;
 use Sinergia\Shared\Config\Config;
@@ -166,6 +171,24 @@ final class Kernel
                 $c->get('ml.client.public'),
                 $c->get(Config::class)->mercadoLivre(),
                 $c->get(Config::class)->mercadoLivreOAuth(),
+            )),
+            // Seletor de ofertas (F1, etapa 4): cache público + dados privados por conta; token da PRÓPRIA conta.
+            PublicCatalogCacheRepository::class => factory(static fn (ContainerInterface $c) => new PublicCatalogCacheRepository($c->get(\PDO::class))),
+            OfferSelectionRepository::class => factory(static fn (ContainerInterface $c) => new OfferSelectionRepository($c->get(\PDO::class))),
+            MercadoLivreCatalogSourceFactory::class => factory(static fn (ContainerInterface $c) => new MercadoLivreCatalogSourceFactory(
+                $c->get('ml.client.public'),
+                $c->get(MlCredentialRepository::class),
+                static fn (): OAuthClient => $c->get(OAuthClient::class),
+                $c->get(Clock::class),
+            )),
+            SelectOffers::class => factory(static fn (ContainerInterface $c) => new SelectOffers(
+                $c->get(OfferSelectionRepository::class),
+                $c->get(PublicCatalogCacheRepository::class),
+                $c->get(MercadoLivreCatalogSourceFactory::class),
+                new OfferChooser(),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+                $c->get(Config::class)->siteId(),
             )),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(
