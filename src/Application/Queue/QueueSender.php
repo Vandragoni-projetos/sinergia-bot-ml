@@ -24,6 +24,9 @@ use Sinergia\Shared\Clock\Clock;
  * 2. Revalida na hora: bot da conta ativo · destino existe, ativo (elegível e não pausado) · modo manual exige aprovação ·
  *    janela · cadência · link ATIVO da conta para o produto (usa o atual, se o anterior foi substituído) ·
  *    WhatsApp conectado · produto e preço ATUAIS no ML (token da conta) · filtros do nicho · foto.
+ *    Vínculo link ↔ oferta: o link foi gerado para UM anúncio (offer_item_id). Publica-se SOMENTE o preço atual desse
+ *    anúncio; nunca se troca por outro, mesmo mais barato. Anúncio sumido/inelegível ou link sem anúncio → não envia,
+ *    o link é invalidado e o item volta a aguardar link (o cliente gera um link novo). O permalink não é usado.
  * 3. Mensagem com o preço atual e o link exatamente como gravado: v2 (texto criativo da IA, validado) ou, sem IA ou
  *    em QUALQUER falha dela, a v1 fixa. A copy é gerada ANTES de marcar o envio iniciado e nunca bloqueia o envio.
  * 4. Marca "envio iniciado" ANTES de chamar o provedor. Retry só quando o provedor comprovadamente NÃO processou
@@ -36,6 +39,9 @@ final class QueueSender
     public const array BACKOFF_MINUTES = [1 => 5, 2 => 15, 3 => 45];
     public const int AUTH_RETRY_MINUTES = 30;
     public const int SOURCE_RETRY_MINUTES = 15;
+    public const string LINK_OFFER_UNKNOWN = 'link_offer_unknown';
+    public const string LINKED_OFFER_UNAVAILABLE = 'linked_offer_unavailable';
+    public const string LINKED_OFFER_UNVERIFIED = 'linked_offer_unverified';
 
     /** @param \Closure(): WhatsAppProvider $provider */
     public function __construct(
@@ -131,11 +137,25 @@ final class QueueSender
             return $release('whatsapp_not_connected', $now, $now->modify('+' . self::SOURCE_RETRY_MINUTES . ' minutes'));
         }
 
-        // 5) Produto e preço ATUAIS (nunca reaproveita o preço planejado).
+        // 4b) O link precisa dizer para qual anúncio foi gerado (links antigos, sem vínculo, não publicam).
+        $linkedItemId = $item->currentLinkOfferItemId;
+        if ($linkedItemId === null) {
+            return $this->unlinkOffer($installation, $item, self::LINK_OFFER_UNKNOWN, $now);
+        }
+
+        // 5) Produto e o anúncio VINCULADO ao link, com o preço ATUAL dele (nunca o planejado, nunca outro anúncio).
+        $total = null;
+        $received = 0;
         try {
             $source = $this->catalog->forInstallation($installation);
             $product = $source->product($item->productId);
-            $offer = $this->chooser->chooseFromBuyBox($product) ?? $this->chooser->chooseFromItems($source->offers($item->productId)['offers']);
+            $offer = $this->chooser->linked($product, [], $linkedItemId);
+            if ($offer === null) {
+                $page = $source->offers($item->productId);
+                $offer = $this->chooser->linked($product, $page['offers'], $linkedItemId);
+                $total = $page['total'];
+                $received = count($page['offers']);
+            }
         } catch (MercadoLivreFailure $e) {
             if (in_array($e->failureHttpStatus(), [403, 404], true)) {
                 $this->store->finish($installation, $id, $token, 'skipped', 'product_unavailable', $now);
@@ -146,17 +166,28 @@ final class QueueSender
 
             return $release('ml_' . $e->failureCode(), $now, $now->modify('+' . $minutes . ' minutes'));
         }
+        if ($product->catalogStatus !== null && $product->catalogStatus !== 'active') {
+            $this->store->finish($installation, $id, $token, 'skipped', 'product_inactive', $now);
+
+            return 'skipped';
+        }
+        if ($offer === null) {
+            if ($total !== null && $total > $received) {
+                // Lista de anúncios incompleta: não dá para afirmar que o anúncio sumiu. Não envia; tenta depois.
+                return $release(self::LINKED_OFFER_UNVERIFIED, $now, $now->modify('+' . self::SOURCE_RETRY_MINUTES . ' minutes'));
+            }
+
+            // O anúncio do link sumiu ou deixou de ser elegível: não troca por outro; pede link novo.
+            return $this->unlinkOffer($installation, $item, self::LINKED_OFFER_UNAVAILABLE, $now);
+        }
         $skip = match (true) {
-            $offer === null => 'no_offer',
-            $product->catalogStatus !== null && $product->catalogStatus !== 'active' => 'product_inactive',
-            $product->permalink === null => 'no_permalink',
             $product->pictureUrl === null => 'no_photo',
             $item->filters->minPriceCents !== null && $offer->priceCents < $item->filters->minPriceCents,
             $item->filters->maxPriceCents !== null && $offer->priceCents > $item->filters->maxPriceCents,
             $item->filters->minDiscountPct !== null && $offer->discountPct < $item->filters->minDiscountPct => 'filters_no_longer_match',
             default => null,
         };
-        if ($skip !== null || $offer === null) {
+        if ($skip !== null) {
             $this->store->finish($installation, $id, $token, 'skipped', $skip, $now);
 
             return 'skipped';
@@ -177,6 +208,7 @@ final class QueueSender
             'caption' => $caption,
             'image_url' => $product->pictureUrl,
             'affiliate_url' => $item->currentLinkUrl,
+            'item_id' => $offer->itemId,
             'price' => $offer->priceCents,
             'original_price' => $offer->originalPriceCents,
             'discount_pct' => $offer->discountPct,
@@ -275,6 +307,18 @@ final class QueueSender
         }
 
         return null;
+    }
+
+    /** O link não serve mais para o anúncio: invalida o link, devolve o item a "aguardando link" e não envia. */
+    private function unlinkOffer(InstallationId $installation, ClaimedItem $item, string $reason, \DateTimeImmutable $now): string
+    {
+        if ($item->currentLinkId !== null) {
+            $this->store->invalidateLink($installation, $item->currentLinkId, $reason, $now);
+        }
+        $this->store->finish($installation, $item->id, $item->claimToken, 'awaiting_affiliate_link', $reason, $now);
+        $this->logger->warning('queue.link_offer_mismatch', ['installation_id' => $installation->value, 'queue_id' => $item->id, 'reason' => $reason]);
+
+        return 'awaiting_affiliate_link';
     }
 
     private function released(InstallationId $installation, ClaimedItem $item, string $error, \DateTimeImmutable $scheduledFor, ?\DateTimeImmutable $next): string

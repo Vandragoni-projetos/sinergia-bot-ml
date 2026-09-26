@@ -24,7 +24,7 @@ final class MigratorTest extends DatabaseTestCase
 
         $second = (new Migrator($pdo, dirname(__DIR__, 2) . '/database/migrations'))->migrate();
         self::assertSame([], $second, 'Segunda execução não aplica nada.');
-        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function testDatabaseWithOnly0001IsUpgradedTo0002(): void
@@ -46,7 +46,7 @@ final class MigratorTest extends DatabaseTestCase
             self::assertSame(['0001'], (new Migrator($pdo, $dir))->migrate());
             self::assertSame('varchar', $this->scopesType($pdo));
 
-            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012'], (new Migrator($pdo, $migrations))->migrate());
+            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013'], (new Migrator($pdo, $migrations))->migrate());
             self::assertSame('text', $this->scopesType($pdo));
         } finally {
             unlink($dir . '/0001_foundation.sql');
@@ -69,7 +69,7 @@ final class MigratorTest extends DatabaseTestCase
         $pdo->exec("INSERT INTO ml_credentials (installation_id, client_id, access_token_enc, key_id, access_expires_at) VALUES (1, 'x', UNHEX('00'), 'k1', UTC_TIMESTAMP(3))");
         $pdo->exec("INSERT INTO ml_oauth_states (installation_id, state_hash, expires_at) VALUES (1, REPEAT('a', 64), UTC_TIMESTAMP(3))");
 
-        self::assertSame(['0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012'], (new Migrator($pdo, $migrations))->migrate());
+        self::assertSame(['0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013'], (new Migrator($pdo, $migrations))->migrate());
         self::assertSame([['default', 'active', 'paused', 'manual_batch', null]], $pdo->query('SELECT slug, status, bot_status, affiliate_mode, onboarding_completed_at FROM installations')->fetchAll(\PDO::FETCH_NUM));
         self::assertSame('connected', $pdo->query('SELECT status FROM ml_credentials')->fetchColumn());
         self::assertSame('cli', $pdo->query('SELECT origin FROM ml_oauth_states')->fetchColumn());
@@ -127,7 +127,7 @@ final class MigratorTest extends DatabaseTestCase
         $done = (new Migrator($pdo, $migrations))->migrate();
 
         self::assertSame($version, $done[0] ?? null);
-        self::assertSame('0012', $done[count($done) - 1]);
+        self::assertSame('0013', $done[count($done) - 1]);
         foreach ($checks as $check) {
             self::assertSame(1, $this->checkCount($pdo, $check), $check . ' continua única');
         }

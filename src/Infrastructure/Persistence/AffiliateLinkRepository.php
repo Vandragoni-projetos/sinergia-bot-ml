@@ -24,11 +24,14 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
     /**
      * Produtos da conta sem link ativo: primeiro os que já têm publicação planejada na fila ('awaiting_affiliate_link',
      * de qualquer seleção, mesmo antiga), depois os candidatos da seleção mais recente.
+     * O anúncio (item_id) vem da oferta escolhida na seleção MAIS RECENTE EM QUE O PRODUTO APARECEU (o envio revalida
+     * esse anúncio de qualquer forma); produto sem oferta registrada volta BLOQUEADO para exportação (ProductToLink sem
+     * URL). O permalink de /products/{id} não é usado (a API passou a devolvê-lo vazio).
      */
     public function productsAwaitingLink(InstallationId $installation, int $limit): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT x.ml_product_id, p.permalink, p.name, MIN(x.grp * 10000000000 + x.ord) AS sort_key
+            'SELECT x.ml_product_id, p.name, MIN(lc.item_id) AS offer_item_id, MIN(x.grp * 10000000000 + x.ord) AS sort_key
              FROM (
                  SELECT q.ml_product_id, 0 AS grp, UNIX_TIMESTAMP(MIN(q.scheduled_for)) AS ord
                  FROM dispatch_queue q
@@ -40,17 +43,19 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                  WHERE c.installation_id = :inst2
                    AND c.run_id = (SELECT MAX(id) FROM offer_selection_runs WHERE installation_id = :inst3 AND status IN (\'completed\', \'partial\'))
              ) x
-             JOIN ml_products p ON p.ml_product_id = x.ml_product_id AND p.permalink IS NOT NULL
+             JOIN ml_products p ON p.ml_product_id = x.ml_product_id
+             LEFT JOIN account_offer_candidates lc ON lc.installation_id = :inst5 AND lc.ml_product_id = x.ml_product_id
+                 AND lc.run_id = (SELECT MAX(c2.run_id) FROM account_offer_candidates c2 WHERE c2.installation_id = :inst6 AND c2.ml_product_id = x.ml_product_id)
              LEFT JOIN affiliate_links l ON l.installation_id = :inst4 AND l.active_product_id = x.ml_product_id
              WHERE l.id IS NULL
-             GROUP BY x.ml_product_id, p.permalink, p.name
+             GROUP BY x.ml_product_id, p.name
              ORDER BY sort_key, x.ml_product_id
              LIMIT ' . max(1, min($limit, 500))
         );
-        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value, 'inst3' => $installation->value, 'inst4' => $installation->value]);
+        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value, 'inst3' => $installation->value, 'inst4' => $installation->value, 'inst5' => $installation->value, 'inst6' => $installation->value]);
 
         return array_values(array_map(
-            static fn (array $r): ProductToLink => new ProductToLink((string) $r['ml_product_id'], (string) $r['permalink'], (string) $r['name']),
+            static fn (array $r): ProductToLink => new ProductToLink((string) $r['ml_product_id'], $r['offer_item_id'] === null ? null : (string) $r['offer_item_id'], (string) $r['name']),
             $stmt->fetchAll(),
         ));
     }
@@ -122,6 +127,7 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
             array_values(array_map(static fn (array $r): ExportedItem => new ExportedItem(
                 (int) $r['id'], (string) $r['item_key'], (int) $r['position'], (string) $r['ml_product_id'], (string) $r['original_url'],
                 (string) $r['product_name'], (string) $r['match_status'], $r['received_raw'] === null ? null : (string) $r['received_raw'],
+                $r['offer_item_id'] === null ? null : (string) $r['offer_item_id'],
             ), $items->fetchAll())),
             array_values(array_map(static fn (array $r): ReceivedLine => new ReceivedLine(
                 (int) $r['line_no'], (string) $r['received_raw'], trim((string) $r['received_raw']), (string) $r['format_status'],
@@ -144,13 +150,16 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
             )->execute(['inst' => $installation->value, 'key' => $key, 'user' => $userId, 'count' => count($products), 'at' => self::ts($now), 'exp' => self::ts($expiresAt)]);
             $batchId = (int) $this->pdo->lastInsertId();
             $insert = $this->pdo->prepare(
-                'INSERT INTO affiliate_link_batch_items (installation_id, batch_id, item_key, position, ml_product_id, original_url)
-                 VALUES (:inst, :batch, :key, :pos, :product, :url)'
+                'INSERT INTO affiliate_link_batch_items (installation_id, batch_id, item_key, position, ml_product_id, offer_item_id, original_url)
+                 VALUES (:inst, :batch, :key, :pos, :product, :offer, :url)'
             );
             foreach (array_values($products) as $i => $product) {
+                if (!$product->exportable()) {
+                    throw new \LogicException('Produto sem anúncio confirmado não entra em lote.');
+                }
                 $insert->execute([
                     'inst' => $installation->value, 'batch' => $batchId, 'key' => bin2hex(random_bytes(10)), 'pos' => $i + 1,
-                    'product' => $product->productId, 'url' => $product->originalUrl,
+                    'product' => $product->productId, 'offer' => $product->offerItemId, 'url' => $product->originalUrl,
                 ]);
             }
         });
@@ -208,7 +217,7 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                 throw new \RuntimeException('Lote não pertence a esta conta.');
             }
             foreach ($associations as $association) {
-                $item = $this->pdo->prepare('SELECT id, ml_product_id, original_url FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch AND id = :id FOR UPDATE');
+                $item = $this->pdo->prepare('SELECT id, ml_product_id, offer_item_id, original_url FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch AND id = :id FOR UPDATE');
                 $item->execute($scope + ['id' => $association['item_id']]);
                 $itemRow = $item->fetch();
                 $line = $this->pdo->prepare('SELECT received_raw FROM affiliate_link_batch_lines WHERE installation_id = :inst AND batch_id = :batch AND line_no = :no');
@@ -221,10 +230,11 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                 $url = trim($raw);
                 $sha = hash('sha256', $url);
 
-                $current = $this->pdo->prepare('SELECT id, affiliate_url_sha256 FROM affiliate_links WHERE installation_id = :inst AND active_product_id = :product FOR UPDATE');
+                $current = $this->pdo->prepare('SELECT id, affiliate_url_sha256, offer_item_id FROM affiliate_links WHERE installation_id = :inst AND active_product_id = :product FOR UPDATE');
                 $current->execute(['inst' => $installation->value, 'product' => $itemRow['ml_product_id']]);
                 $existing = $current->fetch();
-                if (is_array($existing) && hash_equals((string) $existing['affiliate_url_sha256'], $sha)) {
+                // Reaproveita só o MESMO link gerado para o MESMO anúncio; qualquer diferença grava um link novo.
+                if (is_array($existing) && hash_equals((string) $existing['affiliate_url_sha256'], $sha) && $existing['offer_item_id'] === $itemRow['offer_item_id']) {
                     $linkId = (int) $existing['id'];
                     $reused++;
                 } else {
@@ -235,11 +245,11 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                     }
                     $this->pdo->prepare(
                         'INSERT INTO affiliate_links
-                            (installation_id, site_id, ml_product_id, original_url, affiliate_url, affiliate_url_sha256, source, batch_id, batch_item_id,
+                            (installation_id, site_id, ml_product_id, offer_item_id, original_url, affiliate_url, affiliate_url_sha256, source, batch_id, batch_item_id,
                              status, received_at, confirmed_at, confirmed_by_user_id, created_at, updated_at)
-                         VALUES (:inst, \'MLB\', :product, :original, :url, :sha, \'manual_batch\', :batch, :item, \'active\', :received, :at, :user, :at2, :at3)'
+                         VALUES (:inst, \'MLB\', :product, :offer, :original, :url, :sha, \'manual_batch\', :batch, :item, \'active\', :received, :at, :user, :at2, :at3)'
                     )->execute([
-                        'inst' => $installation->value, 'product' => $itemRow['ml_product_id'], 'original' => $itemRow['original_url'],
+                        'inst' => $installation->value, 'product' => $itemRow['ml_product_id'], 'offer' => $itemRow['offer_item_id'], 'original' => $itemRow['original_url'],
                         'url' => $url, 'sha' => $sha, 'batch' => $batchId, 'item' => $itemRow['id'], 'received' => $receivedAt,
                         'at' => self::ts($now), 'user' => $userId, 'at2' => self::ts($now), 'at3' => self::ts($now),
                     ]);

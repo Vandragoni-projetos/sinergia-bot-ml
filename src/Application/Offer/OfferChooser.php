@@ -13,6 +13,9 @@ namespace Sinergia\Application\Offer;
  *       a) menor preço;  b) frete grátis;  c) loja oficial;  d) maior desconto;  e) menor item_id (ordem textual).
  *     A ordem em que a API devolve os itens NUNCA é usada como critério.
  *  3. Nenhuma oferta elegível → null (produto descartado).
+ *
+ * No ENVIO a regra é outra (linked): vale só o anúncio (item_id) para o qual o link de afiliado foi gerado, com o
+ * preço ATUAL dele. Nunca se troca silenciosamente por outro anúncio, mesmo mais barato.
  */
 final class OfferChooser
 {
@@ -38,6 +41,23 @@ final class OfferChooser
             <=> [$b->priceCents, !$b->freeShipping, !$b->officialStore, -$b->discountPct(), $b->itemId]);
 
         return self::chosen($eligible[0], ChosenOffer::RULE_LOWEST_PRICE, count($offers), count($eligible));
+    }
+
+    /**
+     * O anúncio vinculado ao link, procurado pelo item_id no buy_box_winner e nas ofertas de /items.
+     *
+     * @param list<ProductOffer> $offers
+     */
+    public function linked(CatalogProduct $product, array $offers, string $itemId): ?ChosenOffer
+    {
+        $candidates = $product->buyBoxWinner === null ? $offers : [$product->buyBoxWinner, ...$offers];
+        foreach ($candidates as $offer) {
+            if ($offer->itemId === $itemId) {
+                return $offer->isEligible() ? self::chosen($offer, ChosenOffer::RULE_LINKED_OFFER, null, null) : null;
+            }
+        }
+
+        return null;
     }
 
     private static function chosen(ProductOffer $offer, string $rule, ?int $total, ?int $eligible): ChosenOffer

@@ -42,6 +42,7 @@ use Sinergia\Tests\Support\RoutedMercadoLivreHttp;
 final class QueueWorkerTest extends DatabaseTestCase
 {
     private const string NOW = '2026-09-28T15:00:00Z';
+    private const string BUY_BOX_ITEM = 'MLB7000000009';
 
     private \PDO $db;
     private string $appKey;
@@ -582,6 +583,161 @@ final class QueueWorkerTest extends DatabaseTestCase
         self::assertNotNull($destB);
     }
 
+    /**
+     * Etapa 12C, ponta a ponta com o ML FALSO igual à API real de hoje (permalink vazio, sem buy_box_winner):
+     * seleção → URL do anúncio → link colado → fila → QueueSender (WhatsApp falso). Nenhuma mensagem real.
+     */
+    public function testEndToEndEmptyPermalinkExportsTheItemUrlAndSendsWithTheExactLinkedOffer(): void
+    {
+        $this->db->exec("DELETE FROM ml_products WHERE ml_product_id = 'MLB300001'");
+        $this->autoDestination($this->a, 'Ofertas', ['air-fryers'], interval: 60);
+        $this->ml->ranking('MLB456045', [['MLB300001']]);
+        $this->ml->product('MLB300001', 'MLB-AIR_FRYERS', ['name' => 'Air Fryer Mondial 4L', 'permalink' => '', 'buy_box_winner' => null])
+            ->offers('MLB300001', [['price' => 54.23, 'item_id' => 'MLB5270155247'], ['price' => 52.0, 'item_id' => 'MLB4445311021']]);
+
+        // 1º ciclo: seleciona (permalink vazio não elimina) e planeja; sem link, nada é enviado.
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame([['MLB300001', 'MLB4445311021']], $this->rows('SELECT ml_product_id, item_id FROM account_offer_candidates WHERE installation_id = ?', [$this->a->id->value]));
+        self::assertSame([['MLB300001', 'awaiting_affiliate_link']], $this->rows('SELECT ml_product_id, status FROM dispatch_queue WHERE installation_id = ?', [$this->a->id->value]));
+        self::assertCount(0, $this->uazapi->sent);
+
+        // Copiar URLs: a URL do ANÚNCIO escolhido, nunca /p/{produto} ou permalink.
+        $links = $this->container->get(AffiliateLinkRepository::class);
+        $provider = $this->container->get(ManualBatchAffiliateLinkProvider::class);
+        $batch = $provider->exportBatch($this->a->id, $this->ana, $links->productsAwaitingLink($this->a->id, 50));
+        self::assertSame("https://produto.mercadolivre.com.br/MLB-4445311021", $batch->exportText());
+        self::assertSame('MLB4445311021', $batch->items[0]->offerItemId);
+
+        // Link colado: guardado byte a byte e vinculado ao anúncio.
+        $pasted = 'https://meli.la/TesteE2E7a';
+        $view = $provider->previewImport($this->a->id, $batch->key, "  $pasted \r\n");
+        $provider->confirmImport($this->a->id, $batch->key, [1 => $view->items[0]->itemKey], $this->ana);
+        self::assertSame([['MLB300001', 'MLB4445311021', $pasted, strtoupper(bin2hex($pasted)), 'https://produto.mercadolivre.com.br/MLB-4445311021']],
+            $this->rows('SELECT ml_product_id, offer_item_id, affiliate_url, HEX(affiliate_url), original_url FROM affiliate_links'));
+
+        // 2º ciclo: promovido e enviado com o preço do anúncio vinculado e o link exato.
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertCount(1, $this->uazapi->sent);
+        self::assertSame("Air Fryer Mondial 4L\n\nPor R$ 52,00\n\n" . $pasted, json_decode($this->uazapi->sent[0]['body'], true)['text']);
+        $json = json_decode((string) $this->rows("SELECT message_json FROM dispatch_queue WHERE ml_product_id = 'MLB300001'")[0][0], true);
+        self::assertSame(['MLB4445311021', 5200, 'linked_offer', $pasted], [$json['item_id'], $json['price'], $json['offer_rule'], $json['affiliate_url']]);
+    }
+
+    public function testAnotherCheaperOfferNeverReplacesTheLinkedOne(): void
+    {
+        $this->linkedSetup();
+        $this->ml->product('MLB200001', 'MLB-X', ['name' => 'Air Fryer 4L', 'pictures' => [['id' => 'x', 'url' => 'https://http2.mlstatic.com/D_MLB200001.jpg']], 'buy_box_winner' => null])
+            ->offers('MLB200001', [['item_id' => 'MLB7000000001', 'price' => 150.0], ['item_id' => self::BUY_BOX_ITEM, 'price' => 199.90, 'original_price' => 249.90]]);
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(1, $this->uazapi->sent);
+        self::assertStringContainsString('De R$ 249,90 por R$ 199,90 (20% OFF)', json_decode($this->uazapi->sent[0]['body'], true)['text']);
+        self::assertStringNotContainsString('150,00', json_decode($this->uazapi->sent[0]['body'], true)['text']);
+        self::assertSame(self::BUY_BOX_ITEM, json_decode((string) $this->rows('SELECT message_json FROM dispatch_queue')[0][0], true)['item_id']);
+    }
+
+    public function testBuyBoxWinnerOfAnotherItemNeverReplacesTheLinkedOne(): void
+    {
+        $this->linkedSetup(offerItemId: 'MLB4445311021');
+        // O ML passou a destacar OUTRO anúncio no buy box; o anúncio do link continua em /items com o preço dele.
+        $this->ml->product('MLB200001', 'MLB-X', [
+            'name' => 'Air Fryer 4L',
+            'buy_box_winner' => ['item_id' => 'MLB7000000009', 'price' => 59.57, 'original_price' => 119.70, 'currency_id' => 'BRL', 'condition' => 'new'],
+        ])->offers('MLB200001', [['item_id' => 'MLB4445311021', 'price' => 52.0]]);
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(1, $this->uazapi->sent);
+        $text = json_decode($this->uazapi->sent[0]['body'], true)['text'];
+        self::assertStringContainsString('Por R$ 52,00', $text);
+        self::assertStringNotContainsString('59,57', $text);
+        self::assertSame('MLB4445311021', json_decode((string) $this->rows('SELECT message_json FROM dispatch_queue')[0][0], true)['item_id']);
+    }
+
+    public function testPriceChangeOfTheLinkedOfferPublishesItsCurrentPriceNeverThePlannedOne(): void
+    {
+        $this->linkedSetup();
+        $this->freshOffer('MLB200001', 21990, 24990);   // o MESMO anúncio subiu de 199,90 para 219,90
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(1, $this->uazapi->sent);
+        $text = json_decode($this->uazapi->sent[0]['body'], true)['text'];
+        self::assertStringContainsString('De R$ 249,90 por R$ 219,90 (12% OFF)', $text);
+        self::assertStringNotContainsString('199,90', $text, 'Nunca o preço planejado.');
+        self::assertSame([['219.90', self::BUY_BOX_ITEM]], $this->rows("SELECT planned_price, JSON_VALUE(message_json, '$.item_id') FROM dispatch_queue"));
+    }
+
+    public function testLinkedOfferPriceOutOfFiltersIsSkippedNotRepriced(): void
+    {
+        $this->linkedSetup(new NicheFilters(null, null, 20000, true));
+        $this->freshOffer('MLB200001', 21990, 24990);   // subiu acima do preço máximo do nicho
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(0, $this->uazapi->sent);
+        self::assertSame([['skipped', 'filters_no_longer_match']], $this->rows('SELECT status, last_error FROM dispatch_queue'));
+    }
+
+    public function testLinkedOfferGoneOrIneligibleIsNotSentAndAsksForANewLink(): void
+    {
+        foreach (['sumiu' => [['item_id' => 'MLB7000000001', 'price' => 150.0]], 'usado' => [['item_id' => self::BUY_BOX_ITEM, 'price' => 199.90, 'condition' => 'used']]] as $case => $offers) {
+            $this->setUp();
+            $this->linkedSetup();
+            $this->ml->product('MLB200001', 'MLB-X', ['name' => 'Air Fryer 4L', 'buy_box_winner' => null])->offers('MLB200001', $offers);
+
+            $this->worker()->runOnce('w1', $this->clock->now());
+
+            self::assertCount(0, $this->uazapi->sent, $case);
+            self::assertSame([['awaiting_affiliate_link', 'linked_offer_unavailable', null]], $this->rows('SELECT status, last_error, affiliate_link_id FROM dispatch_queue'), $case);
+            self::assertSame([['invalid', 'linked_offer_unavailable']], $this->rows('SELECT status, invalid_reason FROM affiliate_links'), $case);
+            // O produto volta para "Aguardando link" com a URL do anúncio escolhido na seleção (o envio nunca troca sozinho).
+            self::assertSame(['MLB200001'], array_map(static fn ($p): string => $p->productId, $this->container->get(AffiliateLinkRepository::class)->productsAwaitingLink($this->a->id, 50)), $case);
+            // Ciclos seguintes não voltam a enviar sem link novo.
+            $this->clock->advance('PT2H');
+            $this->worker()->runOnce('w1', $this->clock->now());
+            self::assertCount(0, $this->uazapi->sent, $case);
+        }
+    }
+
+    public function testLinkWithoutOfferIsNotSent(): void
+    {
+        $this->linkedSetup(offerItemId: null);
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(0, $this->uazapi->sent);
+        self::assertSame([['awaiting_affiliate_link', 'link_offer_unknown']], $this->rows('SELECT status, last_error FROM dispatch_queue'));
+        self::assertSame([['invalid', 'link_offer_unknown']], $this->rows('SELECT status, invalid_reason FROM affiliate_links'));
+    }
+
+    public function testIncompleteOffersListNeverConcludesThatTheLinkedOfferIsGone(): void
+    {
+        $this->linkedSetup();
+        $this->ml->product('MLB200001', 'MLB-X', ['name' => 'Air Fryer 4L', 'buy_box_winner' => null])
+            ->on('/products/MLB200001/items', 200, ['paging' => ['total' => 80, 'offset' => 0, 'limit' => 50], 'results' => [
+                ['item_id' => 'MLB7000000001', 'price' => 150.0, 'currency_id' => 'BRL', 'condition' => 'new', 'original_price' => null, 'shipping' => ['free_shipping' => false], 'official_store_id' => null],
+            ]]);
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(0, $this->uazapi->sent);
+        self::assertSame([['scheduled', 'linked_offer_unverified']], $this->rows('SELECT status, last_error FROM dispatch_queue'));
+        self::assertSame([['active']], $this->rows('SELECT status FROM affiliate_links'), 'Sem prova de que sumiu, o link não é invalidado.');
+    }
+
+    /** Um destino automático, um candidato e o link ativo dele (anúncio $offerItemId). */
+    private function linkedSetup(?NicheFilters $filters = null, ?string $offerItemId = self::BUY_BOX_ITEM): void
+    {
+        $this->autoDestination($this->a, 'Ofertas', ['air-fryers'], interval: 60);
+        if ($filters !== null) {
+            (new AccountNicheRepository($this->db))->save($this->a->id, $this->nicheId('casa-cozinha'), [$this->subId('air-fryers')], $filters, $this->ana, new \DateTimeImmutable(self::NOW));
+        }
+        $this->candidates($this->a, [['MLB200001', 'air-fryers']]);
+        $this->link($this->a, 'MLB200001', 'https://meli.la/Vinculo01', $offerItemId);
+    }
+
     /** @param array<string, string> $extra variáveis adicionais (ex.: IA da copy) */
     private function build(array $extra = []): Container
     {
@@ -656,18 +812,19 @@ final class QueueWorkerTest extends DatabaseTestCase
         $run = (int) $this->db->lastInsertId();
         foreach ($items as $i => [$product, $sub]) {
             $this->db->prepare("INSERT INTO account_offer_candidates (installation_id, run_id, ml_product_id, niche_id, subniche_id, ml_category_id, ranking_position, sort_order, item_id, price, original_price, discount_pct, selection_rule)
-                VALUES (?, ?, ?, ?, ?, 'MLB456045', ?, ?, 'MLB7000000001', 199.90, 249.90, 20, 'buy_box')")
-                ->execute([$inst->id->value, $run, $product, $this->nicheId('casa-cozinha'), $this->subId($sub), $i + 1, $i + 1]);
+                VALUES (?, ?, ?, ?, ?, 'MLB456045', ?, ?, ?, 199.90, 249.90, 20, 'buy_box')")
+                ->execute([$inst->id->value, $run, $product, $this->nicheId('casa-cozinha'), $this->subId($sub), $i + 1, $i + 1, self::BUY_BOX_ITEM]);
         }
     }
 
-    private function link(Installation $inst, string $product, string $url): int
+    /** Link ativo gerado para o anúncio $offerItemId (padrão: o buy_box_winner de freshOffer). */
+    private function link(Installation $inst, string $product, string $url, ?string $offerItemId = self::BUY_BOX_ITEM): int
     {
         $user = $inst->id->equals($this->a->id) ? $this->ana : $this->bia;
-        $this->db->prepare("INSERT INTO affiliate_links (installation_id, site_id, ml_product_id, original_url, affiliate_url, affiliate_url_sha256, source, status,
+        $this->db->prepare("INSERT INTO affiliate_links (installation_id, site_id, ml_product_id, offer_item_id, original_url, affiliate_url, affiliate_url_sha256, source, status,
                 received_at, confirmed_at, confirmed_by_user_id, created_at, updated_at)
-            VALUES (?, 'MLB', ?, ?, ?, SHA2(?, 256), 'manual_batch', 'active', NOW(3), NOW(3), ?, NOW(3), NOW(3))")
-            ->execute([$inst->id->value, $product, 'https://www.mercadolivre.com.br/p/' . $product, $url, $url, $user]);
+            VALUES (?, 'MLB', ?, ?, ?, ?, SHA2(?, 256), 'manual_batch', 'active', NOW(3), NOW(3), ?, NOW(3), NOW(3))")
+            ->execute([$inst->id->value, $product, $offerItemId, 'https://produto.mercadolivre.com.br/MLB-' . substr((string) $offerItemId, 3), $url, $url, $user]);
 
         return (int) $this->db->lastInsertId();
     }

@@ -58,16 +58,23 @@ final class ManualBatchAffiliateLinkProvider implements AffiliateLinkProvider
         if ($open !== null) {
             return $open;
         }
-        // Só produtos ainda sem link ativo, sem repetir, no máximo MAX_BATCH_ITEMS.
+        // Só produtos ainda sem link ativo, sem repetir, no máximo MAX_BATCH_ITEMS — e só os que têm anúncio (item_id)
+        // confirmado: a URL entregue ao Gerador é a do anúncio. Sem ele o produto fica bloqueado, nunca com URL inventada.
         $pending = array_flip($this->request($installation, $products)->pending);
         $selected = [];
+        $blocked = 0;
         foreach ($products as $product) {
-            if (isset($pending[$product->productId]) && !isset($selected[$product->productId])) {
-                $selected[$product->productId] = $product;
+            if (!isset($pending[$product->productId]) || isset($selected[$product->productId])) {
+                continue;
             }
+            if (!$product->exportable()) {
+                $blocked++;
+                continue;
+            }
+            $selected[$product->productId] = $product;
         }
         if ($selected === []) {
-            throw new BatchRejected(BatchRejected::NOTHING_TO_EXPORT);
+            throw new BatchRejected($blocked > 0 ? BatchRejected::NO_CONFIRMED_OFFER : BatchRejected::NOTHING_TO_EXPORT);
         }
         $batch = $this->store->createBatch($installation, $userId, array_slice(array_values($selected), 0, self::MAX_BATCH_ITEMS), $now, $now->modify('+' . self::BATCH_TTL_HOURS . ' hours'));
         $this->logger->info('affiliate.batch_exported', ['installation_id' => $installation->value, 'items' => count($batch->items)]);

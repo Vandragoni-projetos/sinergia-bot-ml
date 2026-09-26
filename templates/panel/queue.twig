@@ -99,7 +99,7 @@
         <p class="muted">Nenhum produto aguardando link. As ofertas aparecem aqui depois da busca em <a href="/comecar">Primeiros passos</a> ou quando o bot estiver trabalhando.</p>
     {% elseif not batch %}
         <ul class="available">
-            {% for product in awaiting|slice(0, 50) %}<li><span>{{ product.name }}</span></li>{% endfor %}
+            {% for product in awaiting|slice(0, 50) %}<li><span>{{ product.name }}</span>{% if not product.exportable %} <span class="muted small">— sem oferta confirmada; busque as ofertas de novo para gerar o link</span>{% endif %}</li>{% endfor %}
         </ul>
     {% endif %}
 

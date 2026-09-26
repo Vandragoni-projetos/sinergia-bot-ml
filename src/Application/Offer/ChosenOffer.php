@@ -9,6 +9,8 @@ final readonly class ChosenOffer
 {
     public const string RULE_BUY_BOX = 'buy_box';
     public const string RULE_LOWEST_PRICE = 'lowest_price';
+    /** No envio: o anúncio para o qual o link de afiliado foi gerado (nunca outro). */
+    public const string RULE_LINKED_OFFER = 'linked_offer';
 
     public function __construct(
         public string $itemId,

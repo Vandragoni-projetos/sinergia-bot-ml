@@ -217,6 +217,22 @@ final class OfferSelectionTest extends DatabaseTestCase
         self::assertSame($this->candidateIds($first), $this->candidateIds($second));
     }
 
+    public function testEmptyPermalinkDoesNotEliminateAValidProductAndTheChosenItemIsKept(): void
+    {
+        // Como a API real hoje (etapa 12B): permalink vazio e sem buy_box_winner; a oferta sai de /items.
+        $this->choose($this->a, 'casa-cozinha', ['air-fryers'], NicheFilters::defaults());
+        $this->ml->ranking('MLB456045', [['MLB120']]);
+        $this->ml->product('MLB120', 'MLB-AIR_FRYERS', ['permalink' => '', 'buy_box_winner' => null])
+            ->offers('MLB120', [['price' => 54.23, 'item_id' => 'MLB5270155247'], ['price' => 52.0, 'item_id' => 'MLB4445311021']]);
+
+        $report = $this->select($this->a);
+
+        self::assertSame(['MLB120'], $this->candidateIds($report));
+        self::assertArrayNotHasKey('no_permalink', $report->stats['rejections']);
+        self::assertNull($report->candidates[0]->product->permalink);
+        self::assertSame([['MLB120', 'MLB4445311021', '52.00', 'lowest_price']], $this->rows('SELECT ml_product_id, item_id, price, selection_rule FROM account_offer_candidates'));
+    }
+
     public function testUnauthorizedStopsTheRunAndKeepsPreviousCandidates(): void
     {
         $this->choose($this->a, 'casa-cozinha', ['air-fryers'], NicheFilters::defaults());

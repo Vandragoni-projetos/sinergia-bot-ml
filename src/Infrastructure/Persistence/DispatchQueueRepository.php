@@ -211,7 +211,7 @@ final class DispatchQueueRepository implements QueueStore, QueueDecisions
                     i.bot_status, i.timezone,
                     d.id AS dest_id, d.status AS dest_status, d.mode, d.provider_ref,
                     TIME_FORMAT(d.window_start, \'%H:%i\') AS ws, TIME_FORMAT(d.window_end, \'%H:%i\') AS we, d.interval_minutes, d.last_sent_at,
-                    l.id AS link_id, l.affiliate_url,
+                    l.id AS link_id, l.affiliate_url, l.offer_item_id AS link_offer_item_id,
                     p.name AS product_name, p.picture_url,
                     an.min_discount_pct, an.min_price, an.max_price, an.require_photo,
                     n.name AS niche_name, s.name AS subniche_name
@@ -252,6 +252,7 @@ final class DispatchQueueRepository implements QueueStore, QueueDecisions
             $r['product_name'] === null ? null : (string) $r['product_name'], $r['picture_url'] === null ? null : (string) $r['picture_url'],
             $filters,
             $r['niche_name'] === null ? null : (string) $r['niche_name'], $r['subniche_name'] === null ? null : (string) $r['subniche_name'],
+            $r['link_offer_item_id'] === null ? null : (string) $r['link_offer_item_id'],
         );
     }
 
@@ -277,6 +278,14 @@ final class DispatchQueueRepository implements QueueStore, QueueDecisions
             'status' => $status, 'status2' => $status, 'error' => $error, 'now' => self::ts($now), 'now2' => self::ts($now),
             'inst' => $installation->value, 'id' => $id, 'token' => $token,
         ]);
+    }
+
+    public function invalidateLink(InstallationId $installation, int $linkId, string $reason, \DateTimeImmutable $now): void
+    {
+        $this->pdo->prepare(
+            'UPDATE affiliate_links SET status = \'invalid\', invalidated_at = :at, invalid_reason = :reason, updated_at = :at2
+             WHERE installation_id = :inst AND id = :id AND status = \'active\''
+        )->execute(['at' => self::ts($now), 'reason' => $reason, 'at2' => self::ts($now), 'inst' => $installation->value, 'id' => $linkId]);
     }
 
     public function markSendStarted(InstallationId $installation, int $id, string $token, int $linkId, array $message, int $priceCents, ?int $originalCents, int $discount, \DateTimeImmutable $now): bool

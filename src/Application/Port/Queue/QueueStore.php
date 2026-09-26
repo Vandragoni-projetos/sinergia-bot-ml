@@ -73,6 +73,12 @@ interface QueueStore
     public function finish(InstallationId $installation, int $id, string $token, string $status, ?string $error, \DateTimeImmutable $now): void;
 
     /**
+     * Invalida o link ativo da conta (o anúncio para o qual foi gerado não serve mais): o produto volta a "Aguardando
+     * link" e só publica com um link novo. O texto do link nunca é alterado.
+     */
+    public function invalidateLink(InstallationId $installation, int $linkId, string $reason, \DateTimeImmutable $now): void;
+
+    /**
      * Marca o início REAL do envio (a partir daqui o resultado pode ser incerto) e grava a mensagem e o preço atual.
      *
      * @param array<string, mixed> $message

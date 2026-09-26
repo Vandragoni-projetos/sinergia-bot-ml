@@ -67,7 +67,7 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         foreach (['MLB100001' => 'Air Fryer 4L', 'MLB100002' => 'Panela de Pressão 6L', 'MLB100003' => 'Jogo de Panelas', 'MLB100004' => 'Cafeteira'] as $id => $name) {
             $this->db->prepare("INSERT INTO ml_products (ml_product_id, site_id, status, name, domain_id, permalink, picture_url, pictures_count, fetched_at)
                 VALUES (?, 'MLB', 'ok', ?, 'MLB-X', ?, 'https://http2.mlstatic.com/x.jpg', 1, NOW(3))")
-                ->execute([$id, $name, 'https://www.mercadolivre.com.br/produto-teste/p/' . $id]);
+                ->execute([$id, $name, null]); // a API passou a devolver permalink vazio (etapa 12C)
         }
         $this->candidates($this->a, ['MLB100001', 'MLB100002', 'MLB100003']);
         $this->candidates($this->b, ['MLB100001', 'MLB100004']);
@@ -112,9 +112,9 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         self::assertSame('/fila?ok=exportado#afiliados', $this->post($ana, '/fila/links/exportar')->getHeaderLine('Location'));
         $page = $this->page($ana);
         $key = $this->batchKey($page);
-        // Exporta as URLs originais, na ordem, sem alteração.
+        // Exporta a URL do ANÚNCIO escolhido (item_id) de cada produto, na ordem — o permalink vazio não é usado.
         self::assertStringContainsString(
-            "https://www.mercadolivre.com.br/produto-teste/p/MLB100001\nhttps://www.mercadolivre.com.br/produto-teste/p/MLB100002\nhttps://www.mercadolivre.com.br/produto-teste/p/MLB100003</textarea>",
+            "https://produto.mercadolivre.com.br/MLB-7100001\nhttps://produto.mercadolivre.com.br/MLB-7100002\nhttps://produto.mercadolivre.com.br/MLB-7100003</textarea>",
             $page,
         );
 
@@ -129,7 +129,7 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $response = $this->confirm($ana, $key, $this->proposed($preview));
         self::assertSame('/fila?ok=confirmado&resumo=3-0-0-0#afiliados', $response->getHeaderLine('Location'));
 
-        $links = $this->rows('SELECT ml_product_id, affiliate_url, HEX(affiliate_url), affiliate_url_sha256, source, status, confirmed_by_user_id, original_url FROM affiliate_links WHERE installation_id = ? ORDER BY ml_product_id', [$this->a->id->value]);
+        $links = $this->rows('SELECT ml_product_id, affiliate_url, HEX(affiliate_url), affiliate_url_sha256, source, status, confirmed_by_user_id, original_url, offer_item_id FROM affiliate_links WHERE installation_id = ? ORDER BY ml_product_id', [$this->a->id->value]);
         self::assertSame(['MLB100001', 'MLB100002', 'MLB100003'], array_column($links, 0));
         self::assertSame([self::L1, self::L2, self::L3], array_column($links, 1));
         self::assertSame([strtoupper(bin2hex(self::L1)), strtoupper(bin2hex(self::L2)), strtoupper(bin2hex(self::L3))], array_column($links, 2), 'Byte a byte.');
@@ -137,7 +137,10 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         self::assertSame(['manual_batch'], array_values(array_unique(array_column($links, 4))));
         self::assertSame(['active'], array_values(array_unique(array_column($links, 5))));
         self::assertSame([(string) $this->ana], array_values(array_unique(array_column($links, 6))));
-        self::assertSame('https://www.mercadolivre.com.br/produto-teste/p/MLB100001', $links[0][7]);
+        self::assertSame('https://produto.mercadolivre.com.br/MLB-7100001', $links[0][7]);
+        // Cada link fica vinculado ao anúncio para o qual foi gerado.
+        self::assertSame(['MLB7100001', 'MLB7100002', 'MLB7100003'], array_column($links, 8));
+        self::assertSame([['MLB7100001'], ['MLB7100002'], ['MLB7100003']], $this->rows('SELECT offer_item_id FROM affiliate_link_batch_items ORDER BY position'));
 
         $item = $this->rows('SELECT received_raw, received_position, format_status, match_evidence, match_status FROM affiliate_link_batch_items WHERE position = 1')[0];
         self::assertSame(['  ' . self::L1 . ' ', '1', 'valid', 'position_only', 'confirmed'], $item);
@@ -209,14 +212,14 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $this->linkAll($provider, [self::L1, self::L2, self::L3]);
 
         // Produto que já tem link continua sendo reaproveitado (não volta a "aguardar").
-        $result = $provider->request($this->a->id, [new ProductToLink('MLB100001', 'x', 'x'), new ProductToLink('MLB100004', 'y', 'y')]);
+        $result = $provider->request($this->a->id, [new ProductToLink('MLB100001', 'MLB7100001', 'x'), new ProductToLink('MLB100004', 'MLB7100004', 'y')]);
         self::assertSame(self::L1, $result->links['MLB100001']->affiliateUrl);
         self::assertSame(['MLB100004'], $result->pending);
         self::assertSame(0, (new AffiliateLinkRepository($this->db))->countAwaitingLink($this->a->id));
 
         // Novo lote para produtos que já têm link (ex.: link a trocar): mesmo link = reuso; outro = substituição.
         $repo = new AffiliateLinkRepository($this->db);
-        $batch = $repo->createBatch($this->a->id, $this->ana, [new ProductToLink('MLB100001', 'https://www.mercadolivre.com.br/produto-teste/p/MLB100001', 'A'), new ProductToLink('MLB100002', 'https://www.mercadolivre.com.br/produto-teste/p/MLB100002', 'B')], new \DateTimeImmutable(), new \DateTimeImmutable('+1 day'));
+        $batch = $repo->createBatch($this->a->id, $this->ana, [new ProductToLink('MLB100001', 'MLB7100001', 'A'), new ProductToLink('MLB100002', 'MLB7100002', 'B')], new \DateTimeImmutable(), new \DateTimeImmutable('+1 day'));
         $provider->previewImport($this->a->id, $batch->key, self::L1 . "\nhttps://meli.la/NovoLink7");
         $view = $repo->batch($this->a->id, $batch->key);
         $report = $provider->confirmImport($this->a->id, $batch->key, [1 => $view->items[0]->itemKey, 2 => $view->items[1]->itemKey], $this->ana);
@@ -307,6 +310,45 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         self::assertSame([['exported']], $this->rows('SELECT status FROM affiliate_link_batches'));
     }
 
+    public function testSameLinkForAnotherOfferIsNotReusedAndTheBindingFollowsTheNewOffer(): void
+    {
+        $provider = $this->provider();
+        $this->linkAll($provider, [self::L1, self::L2, self::L3]);
+
+        // O mesmo texto de link colado para OUTRO anúncio do produto: nunca reaproveita o vínculo antigo.
+        $repo = new AffiliateLinkRepository($this->db);
+        $batch = $repo->createBatch($this->a->id, $this->ana, [new ProductToLink('MLB100001', 'MLB7999991', 'A')], new \DateTimeImmutable(), new \DateTimeImmutable('+1 day'));
+        $provider->previewImport($this->a->id, $batch->key, self::L1);
+        $view = $repo->batch($this->a->id, $batch->key);
+        $report = $provider->confirmImport($this->a->id, $batch->key, [1 => $view->items[0]->itemKey], $this->ana);
+
+        self::assertSame([1, 1, 0], [$report->created, $report->replaced, $report->reused]);
+        self::assertSame(
+            [[self::L1, 'MLB7100001', 'replaced'], [self::L1, 'MLB7999991', 'active']],
+            $this->rows("SELECT affiliate_url, offer_item_id, status FROM affiliate_links WHERE ml_product_id = 'MLB100001' ORDER BY id"),
+        );
+    }
+
+    public function testProductWithoutConfirmedOfferIsBlockedFromExportWithAnExplicitReason(): void
+    {
+        $provider = $this->provider();
+        $blocked = new ProductToLink('MLB100001', null, 'Air Fryer 4L');
+
+        try {
+            $provider->exportBatch($this->a->id, $this->ana, [$blocked]);
+            self::fail('Sem anúncio confirmado não pode haver lote.');
+        } catch (BatchRejected $e) {
+            self::assertSame(BatchRejected::NO_CONFIRMED_OFFER, $e->reason);
+        }
+        self::assertSame(0, $this->tableCount('affiliate_link_batches'));
+
+        // Misturado: só o produto com anúncio entra; nenhuma URL inventada para o outro.
+        $batch = $provider->exportBatch($this->a->id, $this->ana, [$blocked, new ProductToLink('MLB100002', 'MLB7100002', 'Panela')]);
+        self::assertSame('https://produto.mercadolivre.com.br/MLB-7100002', $batch->exportText());
+        self::assertSame([['MLB100002', 'MLB7100002', 'https://produto.mercadolivre.com.br/MLB-7100002']], $this->rows('SELECT ml_product_id, offer_item_id, original_url FROM affiliate_link_batch_items'));
+        self::assertSame(0, (int) $this->rows("SELECT COUNT(*) FROM affiliate_link_batch_items WHERE original_url LIKE '%/p/%'")[0][0]);
+    }
+
     public function testCancelDiscardsWithoutWriting(): void
     {
         $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
@@ -359,8 +401,8 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $sub = $this->rows("SELECT s.niche_id, s.id FROM subniches s WHERE s.slug = 'air-fryers'")[0];
         foreach ($products as $i => $product) {
             $this->db->prepare("INSERT INTO account_offer_candidates (installation_id, run_id, ml_product_id, niche_id, subniche_id, ml_category_id, ranking_position, sort_order, item_id, price, original_price, discount_pct, selection_rule)
-                VALUES (?, ?, ?, ?, ?, 'MLB456045', ?, ?, 'MLB7000000001', 199.90, 249.90, 20, 'lowest_price')")
-                ->execute([$installation->id->value, $run, $product, $sub[0], $sub[1], $i + 1, $i + 1]);
+                VALUES (?, ?, ?, ?, ?, 'MLB456045', ?, ?, ?, 199.90, 249.90, 20, 'lowest_price')")
+                ->execute([$installation->id->value, $run, $product, $sub[0], $sub[1], $i + 1, $i + 1, 'MLB7' . substr($product, 3)]);
         }
     }
 

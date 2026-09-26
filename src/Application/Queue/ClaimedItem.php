@@ -38,6 +38,8 @@ final readonly class ClaimedItem
         /** Nomes do catálogo global de nichos (só para a copy por IA; nenhum dado da conta). */
         public ?string $nicheName = null,
         public ?string $subnicheName = null,
+        /** Anúncio (item_id) para o qual o link ativo foi gerado; null em links antigos (sem vínculo). */
+        public ?string $currentLinkOfferItemId = null,
     ) {
     }
 }

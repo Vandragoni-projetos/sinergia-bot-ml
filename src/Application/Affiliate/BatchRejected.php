@@ -10,6 +10,8 @@ final class BatchRejected extends \RuntimeException
     public const string NOT_FOUND = 'batch_not_found';
     public const string CLOSED = 'batch_closed';
     public const string NOTHING_TO_EXPORT = 'nothing_to_export';
+    /** Há produtos aguardando link, mas nenhum com anúncio (item_id) confirmado para montar a URL. */
+    public const string NO_CONFIRMED_OFFER = 'no_confirmed_offer';
     public const string EMPTY_PASTE = 'empty_paste';
     public const string TOO_LARGE = 'paste_too_large';
     public const string NOT_PREVIEWED = 'not_previewed';

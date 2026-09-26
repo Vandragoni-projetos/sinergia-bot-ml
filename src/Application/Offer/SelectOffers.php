@@ -16,7 +16,9 @@ use Sinergia\Shared\Clock\Clock;
 
 /**
  * Seletor de ofertas (F1, etapa 4): escolhas da conta → categorias aprovadas → ranking oficial
- * → só produtos de catálogo MLB… → sem duplicados → domínio esperado → foto/permalink → oferta → filtros.
+ * → só produtos de catálogo MLB… → sem duplicados → domínio esperado → foto → oferta (com item_id) → filtros.
+ * O permalink de /products/{id} NÃO é critério: a API passou a devolvê-lo vazio. A URL entregue ao Gerador de Links
+ * é a do anúncio escolhido (OfferItemUrl), montada a partir do item_id da oferta.
  *
  * Regra completa em docs/seletor-de-ofertas.md. Resumo da deduplicação: cada produto é avaliado uma vez
  * por execução; as ocorrências são percorridas na ordem (posição no ranking, nicho, subnicho, categoria) e o
@@ -303,7 +305,6 @@ final class SelectOffers
         return match (true) {
             $product->catalogStatus !== null && $product->catalogStatus !== 'active' => 'product_inactive',
             $product->domainId === null || !in_array($product->domainId, $target->expectedDomains, true) => 'domain_mismatch',
-            $product->permalink === null => 'no_permalink',
             $target->filters->requirePhoto && !$product->hasPhoto() => 'no_photo',
             default => null,
         };
