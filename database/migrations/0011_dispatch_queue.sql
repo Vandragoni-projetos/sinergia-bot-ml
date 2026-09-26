@@ -9,7 +9,7 @@ ALTER TABLE installations
     ADD COLUMN IF NOT EXISTS bot_status_changed_at DATETIME(3) NULL,
     ADD COLUMN IF NOT EXISTS bot_status_changed_by BIGINT UNSIGNED NULL,
     ADD COLUMN IF NOT EXISTS destinations_revalidated_at DATETIME(3) NULL,
-    ADD CONSTRAINT ck_installations_bot_status CHECK (bot_status IN ('active', 'paused'));
+    ADD CONSTRAINT IF NOT EXISTS ck_installations_bot_status CHECK (bot_status IN ('active', 'paused'));
 
 CREATE TABLE IF NOT EXISTS dispatch_queue (
     id                  BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,

@@ -21,20 +21,33 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
     {
     }
 
+    /**
+     * Produtos da conta sem link ativo: primeiro os que já têm publicação planejada na fila ('awaiting_affiliate_link',
+     * de qualquer seleção, mesmo antiga), depois os candidatos da seleção mais recente.
+     */
     public function productsAwaitingLink(InstallationId $installation, int $limit): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT c.ml_product_id, p.permalink, p.name, MIN(c.sort_order) AS ord
-             FROM account_offer_candidates c
-             JOIN ml_products p ON p.ml_product_id = c.ml_product_id AND p.permalink IS NOT NULL
-             LEFT JOIN affiliate_links l ON l.installation_id = c.installation_id AND l.active_product_id = c.ml_product_id
-             WHERE c.installation_id = :inst AND l.id IS NULL
-               AND c.run_id = (SELECT MAX(id) FROM offer_selection_runs WHERE installation_id = :inst2 AND status IN (\'completed\', \'partial\'))
-             GROUP BY c.ml_product_id, p.permalink, p.name
-             ORDER BY ord, c.ml_product_id
+            'SELECT x.ml_product_id, p.permalink, p.name, MIN(x.grp * 10000000000 + x.ord) AS sort_key
+             FROM (
+                 SELECT q.ml_product_id, 0 AS grp, UNIX_TIMESTAMP(MIN(q.scheduled_for)) AS ord
+                 FROM dispatch_queue q
+                 WHERE q.installation_id = :inst AND q.status = \'awaiting_affiliate_link\'
+                 GROUP BY q.ml_product_id
+                 UNION ALL
+                 SELECT c.ml_product_id, 1 AS grp, c.sort_order AS ord
+                 FROM account_offer_candidates c
+                 WHERE c.installation_id = :inst2
+                   AND c.run_id = (SELECT MAX(id) FROM offer_selection_runs WHERE installation_id = :inst3 AND status IN (\'completed\', \'partial\'))
+             ) x
+             JOIN ml_products p ON p.ml_product_id = x.ml_product_id AND p.permalink IS NOT NULL
+             LEFT JOIN affiliate_links l ON l.installation_id = :inst4 AND l.active_product_id = x.ml_product_id
+             WHERE l.id IS NULL
+             GROUP BY x.ml_product_id, p.permalink, p.name
+             ORDER BY sort_key, x.ml_product_id
              LIMIT ' . max(1, min($limit, 500))
         );
-        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value]);
+        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value, 'inst3' => $installation->value, 'inst4' => $installation->value]);
 
         return array_values(array_map(
             static fn (array $r): ProductToLink => new ProductToLink((string) $r['ml_product_id'], (string) $r['permalink'], (string) $r['name']),

@@ -26,6 +26,11 @@ Execução: `php bin/console bot:worker` (laço a cada 60 s; `--once` para um ci
 - Link ativo da conta → `scheduled` (auto) ou `pending_approval` (manual); sem link → `awaiting_affiliate_link`.
   Quando o link é confirmado (etapa 7), o item é promovido no ciclo seguinte.
 
+## Estado real do WhatsApp (antes de reservar qualquer item)
+Quando há item vencido, o worker consulta `WhatsAppProvider::status` uma vez por ciclo e conta. Desconectado → o
+estado é gravado (o painel passa a mostrar) e nenhum item é reservado nem alterado: continuam `scheduled`. Falha na
+consulta → nada é enviado no ciclo. Nenhuma chamada de envio acontece nesses casos, então não há risco de duplicar.
+
 ## Revalidação antes do envio (sempre com dados lidos na hora, da conta do item)
 bot da conta ativo → destino existe e está `active` → modo manual exige decisão → janela permite agora →
 cadência (último envio + intervalo ≤ agora) → link ATIVO da conta para o produto (o substituto, se houve troca) →

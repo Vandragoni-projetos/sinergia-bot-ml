@@ -36,6 +36,8 @@ h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 .25rem; }
 p { margin: 0; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
+a { color: var(--accent-text); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
 
 button {
     font: inherit;
@@ -102,6 +104,8 @@ body.panel { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-hei
     padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--surface);
 }
 .account { font-weight: 600; }
+/* Item do grid: sem min-width 0 ele cresce até a largura da maior tabela (as tabelas rolam dentro de .table-wrap). */
+.main { min-width: 0; }
 .content { padding: 1.5rem; max-width: 960px; }
 
 .flow { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1.5rem; font-size: .85rem; }
@@ -115,7 +119,7 @@ body.panel { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-hei
 }
 
 @media (max-width: 720px) {
-    body.panel { grid-template-columns: 1fr; }
+    body.panel { grid-template-columns: minmax(0, 1fr); }
     .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
     .sidebar nav { flex-direction: row; flex-wrap: wrap; margin-top: 1rem; }
     .content { padding: 1rem; }

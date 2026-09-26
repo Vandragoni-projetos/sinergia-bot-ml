@@ -7,11 +7,11 @@
 ALTER TABLE ml_oauth_states
     ADD COLUMN IF NOT EXISTS origin VARCHAR(8) NOT NULL DEFAULT 'cli',
     ADD COLUMN IF NOT EXISTS started_by_user_id BIGINT UNSIGNED NULL,
-    ADD CONSTRAINT ck_ml_oauth_states_origin CHECK (origin IN ('cli', 'panel'));
+    ADD CONSTRAINT IF NOT EXISTS ck_ml_oauth_states_origin CHECK (origin IN ('cli', 'panel'));
 
 ALTER TABLE installations
     ADD COLUMN IF NOT EXISTS affiliate_mode VARCHAR(16) NOT NULL DEFAULT 'manual_batch',
-    ADD CONSTRAINT ck_installations_affiliate_mode CHECK (affiliate_mode IN ('manual_batch', 'official_api'));
+    ADD CONSTRAINT IF NOT EXISTS ck_installations_affiliate_mode CHECK (affiliate_mode IN ('manual_batch', 'official_api'));
 
 CREATE TABLE IF NOT EXISTS affiliate_media_declarations (
     id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

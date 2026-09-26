@@ -91,10 +91,14 @@ final class PanelQueueTest extends DatabaseTestCase
         $page = $this->page($this->signIn('ana@loja-a.test', self::PASSWORD));
 
         foreach (['Bot pausado', 'Ativar bot', 'Aguardando aprovação (1)', 'Air Fryer Aprovar', 'Próximas (1)', 'Panela Agendada',
-            '1 publicação(ões) planejada(s) aguardando link', 'Enviadas e encerradas', 'Mixer Enviado', 'Enviada', 'Grupo Ofertas A'] as $text) {
+            '1 publicação(ões) planejada(s) esperando o link de afiliado', 'Aguardando link (1)', 'Cafeteira Sem Link', 'Enviadas e encerradas', 'Mixer Enviado', 'Enviada', 'Grupo Ofertas A'] as $text) {
             self::assertStringContainsString($text, $page);
         }
         self::assertStringNotContainsString('Produto da Conta B', $page);
+        // Item da fila aguardando link sem estar em seleção nenhuma: aparece para preparar o link, só na própria conta.
+        $pageB = $this->page($this->signIn('bia@loja-b.test', self::PASSWORD));
+        self::assertStringNotContainsString('Cafeteira Sem Link', $pageB);
+        self::assertStringContainsString('Produto da Conta B', $pageB);
         self::assertStringNotContainsString('@g.us', $page);
         self::assertStringNotContainsString('meli.la', $page, 'Links de afiliado não aparecem na fila.');
         self::assertDoesNotMatchRegularExpression('/MLB3000\d\d/', $page);

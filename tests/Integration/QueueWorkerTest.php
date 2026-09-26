@@ -7,6 +7,7 @@ namespace Sinergia\Tests\Integration;
 use DI\Container;
 use Monolog\Handler\TestHandler;
 use Psr\Log\LoggerInterface;
+use Sinergia\Application\Affiliate\ManualBatchAffiliateLinkProvider;
 use Sinergia\Application\Auth\PasswordHasher;
 use Sinergia\Application\Niche\NicheFilters;
 use Sinergia\Application\Port\MercadoLivre\TokenSet;
@@ -18,6 +19,7 @@ use Sinergia\Domain\Installation\Installation;
 use Sinergia\Domain\Installation\InstallationId;
 use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
+use Sinergia\Infrastructure\Persistence\AffiliateLinkRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
 use Sinergia\Infrastructure\Persistence\MlCredentialRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
@@ -202,6 +204,93 @@ final class QueueWorkerTest extends DatabaseTestCase
         self::assertCount(1, $this->uazapi->sent);
         self::assertStringEndsWith("\nhttps://meli.la/ContaAAA", json_decode($this->uazapi->sent[0]['body'], true)['text']);
         self::assertStringNotContainsString('mercadolivre.com.br', json_decode($this->uazapi->sent[0]['body'], true)['text']);
+    }
+
+    public function testAwaitingItemFromAnOlderSelectionCanStillBeLinkedAndThenAdvances(): void
+    {
+        $this->autoDestination($this->a, 'Ofertas', ['air-fryers'], interval: 60);
+        $this->autoDestination($this->b, 'Ofertas B', ['air-fryers'], interval: 60, jid: '120363000000000202@g.us');
+        $links = $this->container->get(AffiliateLinkRepository::class);
+        $ids = static fn (array $products): array => array_map(static fn ($p): string => $p->productId, $products);
+
+        // Seleção A: o produto é planejado e fica aguardando link.
+        $this->candidates($this->a, [['MLB200001', 'air-fryers']]);
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame([['MLB200001', 'awaiting_affiliate_link']], $this->rows('SELECT ml_product_id, status FROM dispatch_queue WHERE installation_id = ?', [$this->a->id->value]));
+
+        // Seleção B substitui a atual e não traz mais o produto de A.
+        $this->candidates($this->a, [['MLB200002', 'air-fryers']]);
+        // Conta B tem item próprio aguardando link do MESMO produto: nunca aparece para A e vice-versa.
+        $this->candidates($this->b, [['MLB200001', 'air-fryers'], ['MLB200003', 'air-fryers']]);
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame(['MLB200001', 'MLB200002'], $ids($links->productsAwaitingLink($this->a->id, 50)), 'O item da fila (seleção A) continua disponível.');
+        self::assertSame(['MLB200001', 'MLB200003'], $ids($links->productsAwaitingLink($this->b->id, 50)));
+        self::assertSame(2, $links->countAwaitingLink($this->a->id));
+
+        // Lote → prévia → confirmação (associação manual) do link do produto de A.
+        $provider = $this->container->get(ManualBatchAffiliateLinkProvider::class);
+        $batch = $provider->exportBatch($this->a->id, $this->ana, $links->productsAwaitingLink($this->a->id, 50));
+        self::assertSame(['MLB200001', 'MLB200002'], array_map(static fn ($i): string => $i->productId, $batch->items));
+        $view = $provider->previewImport($this->a->id, $batch->key, 'https://meli.la/SelecaoA1');
+        $item = array_values(array_filter($view->items, static fn ($i): bool => $i->productId === 'MLB200001'))[0];
+        $provider->confirmImport($this->a->id, $batch->key, [1 => $item->itemKey], $this->ana);
+        self::assertSame(['MLB200002'], $ids($links->productsAwaitingLink($this->a->id, 50)));
+        self::assertSame(['MLB200001', 'MLB200003'], $ids($links->productsAwaitingLink($this->b->id, 50)), 'Link de A não serve para B.');
+
+        // Ciclo seguinte: promovido e enviado com o link confirmado.
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame([['sent']], $this->rows("SELECT status FROM dispatch_queue WHERE installation_id = ? AND ml_product_id = 'MLB200001'", [$this->a->id->value]));
+        self::assertCount(1, $this->uazapi->sent);
+        self::assertStringEndsWith("\nhttps://meli.la/SelecaoA1", json_decode($this->uazapi->sent[0]['body'], true)['text']);
+        self::assertSame([['awaiting_affiliate_link'], ['awaiting_affiliate_link']], $this->rows('SELECT status FROM dispatch_queue WHERE installation_id = ? ORDER BY ml_product_id', [$this->b->id->value]));
+    }
+
+    public function testDisconnectedInProviderBlocksSendingEvenIfPanelSaysConnected(): void
+    {
+        $this->autoDestination($this->a, 'Ofertas', ['air-fryers'], interval: 60);
+        $this->candidates($this->a, [['MLB200001', 'air-fryers']]);
+        $this->link($this->a, 'MLB200001', 'https://meli.la/ContaAAA');
+        $this->uazapi->expire($this->waToken[$this->a->id->value]);   // celular desconectou; o banco ainda diz "connected"
+        self::assertSame([['connected']], $this->rows('SELECT status FROM whatsapp_connections WHERE installation_id = ?', [$this->a->id->value]));
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertSame(0, $this->uazapi->count('POST /send/media'), 'Nenhuma chamada de envio.');
+        self::assertSame(1, $this->uazapi->count('GET /instance/status'));
+        self::assertSame([['scheduled', '0', null, null, null]], $this->rows('SELECT status, attempts, claim_token, send_started_at, last_error FROM dispatch_queue'), 'Item preservado, sem tentativa.');
+        self::assertSame(0, $this->tableCount('dispatch_attempts'));
+        self::assertSame([['disconnected']], $this->rows('SELECT status FROM whatsapp_connections WHERE installation_id = ?', [$this->a->id->value]));
+        self::assertSame([['connected']], $this->rows('SELECT status FROM whatsapp_connections WHERE installation_id = ?', [$this->b->id->value]), 'Outra conta não é afetada.');
+
+        // Enquanto o banco disser desconectado, nem consulta nem envia.
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame([0, 1], [$this->uazapi->count('POST /send/media'), $this->uazapi->count('GET /instance/status')]);
+
+        // Reconectado (pelo painel): o mesmo item sai uma única vez.
+        $this->uazapi->pair($this->waToken[$this->a->id->value]);
+        $this->container->get(WhatsAppConnectionRepository::class)->recordSnapshot($this->a->id, new ConnectionSnapshot(ConnectionSnapshot::CONNECTED), new \DateTimeImmutable(self::NOW));
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame(1, $this->uazapi->count('POST /send/media'));
+        self::assertSame([['sent', '1']], $this->rows('SELECT status, attempts FROM dispatch_queue'));
+    }
+
+    public function testProviderStatusFailureBlocksSendingWithoutTouchingTheItem(): void
+    {
+        $this->autoDestination($this->a, 'Ofertas', ['air-fryers'], interval: 60);
+        $this->candidates($this->a, [['MLB200001', 'air-fryers']]);
+        $this->link($this->a, 'MLB200001', 'https://meli.la/ContaAAA');
+        $this->uazapi->fail('/instance/status', 'timeout');
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertSame(0, $this->uazapi->count('POST /send/media'));
+        self::assertSame([['scheduled', '0', null]], $this->rows('SELECT status, attempts, send_started_at FROM dispatch_queue'));
+        self::assertSame(0, $this->tableCount('dispatch_attempts'));
+        self::assertSame([['connected', 'timeout']], $this->rows('SELECT status, last_error_code FROM whatsapp_connections WHERE installation_id = ?', [$this->a->id->value]));
+
+        // Consulta volta a responder: envia normalmente.
+        $this->worker()->runOnce('w1', $this->clock->now());
+        self::assertSame(1, $this->uazapi->count('POST /send/media'));
     }
 
     public function testRevalidationBeforeSendUsesReplacedLinkAndCurrentPrice(): void

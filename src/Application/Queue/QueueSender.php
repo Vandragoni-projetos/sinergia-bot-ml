@@ -52,8 +52,20 @@ final class QueueSender
     /** @return array<string, int> resultado por desfecho */
     public function sendDue(InstallationId $installation, string $workerId, int $limit): array
     {
+        $due = $this->store->dueItemIds($installation, $this->clock->now(), $limit);
+        if ($due === []) {
+            return [];
+        }
+        // Falha conhecida ANTES do envio: nenhum item é reservado nem alterado; continuam 'scheduled' para o próximo ciclo.
+        $blocked = $this->whatsAppBlocked($installation);
+        if ($blocked !== null) {
+            $this->logger->warning('queue.whatsapp_not_ready', ['installation_id' => $installation->value, 'reason' => $blocked, 'due' => count($due)]);
+
+            return [$blocked => count($due)];
+        }
+
         $summary = [];
-        foreach ($this->store->dueItemIds($installation, $this->clock->now(), $limit) as $id) {
+        foreach ($due as $id) {
             $token = bin2hex(random_bytes(16));
             if (!$this->store->claim($installation, $id, $token, $this->clock->now())) {
                 continue;   // outro worker reservou antes
@@ -229,6 +241,35 @@ final class QueueSender
         ]);
 
         return $outcome;
+    }
+
+    /**
+     * Estado REAL da conexão, pelo WhatsAppProvider: no máximo 1 consulta de status por ciclo e conta, e só quando há
+     * item vencido (o laço do worker roda a cada 60 s). Status diferente de conectado é gravado para o painel refletir.
+     * Se a consulta falhar, nada é enviado neste ciclo (não dá para afirmar que está conectado).
+     *
+     * @return ?string motivo do bloqueio, ou null quando pode enviar
+     */
+    private function whatsAppBlocked(InstallationId $installation): ?string
+    {
+        $connection = $this->connections->find($installation);
+        if ($connection === null || $connection->token === null || $connection->status !== 'connected') {
+            return 'whatsapp_not_connected';
+        }
+        try {
+            $snapshot = ($this->provider)()->status($connection->token);
+        } catch (Failure $e) {
+            $this->connections->recordError($installation, $e->errorCode, $this->clock->now());
+
+            return 'whatsapp_unverified';
+        }
+        if (!$snapshot->isConnected()) {
+            $this->connections->recordSnapshot($installation, $snapshot, $this->clock->now());
+
+            return 'whatsapp_not_connected';
+        }
+
+        return null;
     }
 
     private function released(InstallationId $installation, ClaimedItem $item, string $error, \DateTimeImmutable $scheduledFor, ?\DateTimeImmutable $next): string
