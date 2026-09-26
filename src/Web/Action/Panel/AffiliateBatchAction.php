@@ -55,11 +55,19 @@ final class AffiliateBatchAction
 
                     return self::redirect($response, 'ok=previa');
                 case self::CONFIRM:
+                    // Com a tela de seleção em massa, só as linhas MARCADAS (incluir[n]) são enviadas para confirmação;
+                    // todas as validações do lote continuam em confirmImport.
+                    $useSelection = ($body['com_selecao'] ?? null) === '1';
+                    $included = is_array($body['incluir'] ?? null) ? $body['incluir'] : [];
                     $associations = [];
                     foreach (is_array($body['associar'] ?? null) ? $body['associar'] : [] as $lineNo => $itemKey) {
-                        if (is_string($itemKey) && ctype_digit((string) $lineNo)) {
-                            $associations[(int) $lineNo] = $itemKey;
+                        if (!is_string($itemKey) || !ctype_digit((string) $lineNo)) {
+                            continue;
                         }
+                        if ($useSelection && ($included[$lineNo] ?? null) !== '1') {
+                            continue;
+                        }
+                        $associations[(int) $lineNo] = $itemKey;
                     }
                     $report = $provider->confirmImport($tenant->installationId, $key, $associations, $tenant->userId);
 

@@ -8,6 +8,8 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Affiliate\BatchPreview;
+use Sinergia\Application\Affiliate\ManualBatchAffiliateLinkProvider;
+use Sinergia\Application\Affiliate\ProductToLink;
 use Sinergia\Application\Affiliate\ReceivedLine;
 use Sinergia\Application\Auth\TenantContext;
 use Sinergia\Application\Onboarding\ActivateBot;
@@ -106,6 +108,9 @@ final class QueuePageAction
         $ok = is_string($query['ok'] ?? null) ? $query['ok'] : null;
         $error = is_string($query['erro'] ?? null) ? $query['erro'] : null;
 
+        // Seleção em massa (sem JavaScript): ?selecao=nenhum desmarca tudo; o padrão (e ?selecao=todos) marca SÓ as
+        // linhas válidas, sem conflito e com produto proposto. Linha inválida ou em conflito nunca vem marcada.
+        $selection = ($query['selecao'] ?? null) === 'nenhum' ? 'nenhum' : 'todos';
         $lines = [];
         foreach ($batch->lines ?? [] as $line) {
             $proposedKey = '';
@@ -114,16 +119,21 @@ final class QueuePageAction
                     $proposedKey = $item->itemKey;
                 }
             }
+            $valid = $line->formatStatus === ReceivedLine::VALID;
+            $selectable = $valid && $line->evidence !== ReceivedLine::EVIDENCE_CONFLICT;
             $lines[] = [
                 'no' => $line->lineNo,
                 'text' => $line->url,
                 'format' => self::FORMAT[$line->formatStatus] ?? $line->formatStatus,
-                'valid' => $line->formatStatus === ReceivedLine::VALID,
+                'valid' => $valid,
                 'evidence' => self::EVIDENCE[$line->evidence] ?? $line->evidence,
                 'strong' => $line->evidence === ReceivedLine::EVIDENCE_PRODUCT_ID,
                 'proposed' => $proposedKey,
+                'selectable' => $selectable,
+                'checked' => $selection === 'todos' && $selectable && $proposedKey !== '',
             ];
         }
+        $exportable = count(array_filter($awaiting, static fn (ProductToLink $p): bool => $p->exportable()));
 
         $overview = $this->container->get(DispatchQueueRepository::class)->overview($tenant->installationId);
         foreach ($overview['history'] as $i => $row) {
@@ -142,6 +152,10 @@ final class QueuePageAction
             'batch' => $batch,
             'lines' => $lines,
             'anomalies' => array_map(static fn (string $a): string => self::ANOMALIES[$a] ?? $a, $batch->anomalies ?? []),
+            'countMismatch' => in_array(BatchPreview::COUNT_MISMATCH, $batch->anomalies ?? [], true),
+            'selectableCount' => count(array_filter($lines, static fn (array $l): bool => $l['selectable'])),
+            'checkedCount' => count(array_filter($lines, static fn (array $l): bool => $l['checked'])),
+            'nextBatchSize' => min($exportable, ManualBatchAffiliateLinkProvider::MAX_BATCH_ITEMS),
             'notice' => $ok === null ? null : (self::SUCCESS[$ok] ?? null),
             'report' => is_string($query['resumo'] ?? null) && preg_match('/^\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3}$/', $query['resumo']) === 1 ? explode('-', $query['resumo']) : null,
             'error' => $error === null ? null : (self::MESSAGES[$error] ?? 'Não foi possível concluir a operação.'),

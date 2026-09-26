@@ -209,3 +209,11 @@ a.button.primary-inline { background: var(--accent); border-color: var(--accent)
 .activation button { margin-top: .75rem; }
 .next-step { margin-bottom: 1.25rem; }
 button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Fila — seleção em massa das associações de links (sem JavaScript: a CSP não permite scripts).
+   O número de "N associações" acompanha as caixas marcadas por contador de CSS. */
+.bulk-select { counter-reset: bulk-sel; }
+.bulk-select .bulk-check:checked { counter-increment: bulk-sel; }
+.bulk-select .bulk-count::after { content: counter(bulk-sel); }
+.bulk-select .row-actions { margin: .75rem 0 .25rem; }
+.bulk-summary { margin-top: .75rem; }

@@ -16,7 +16,8 @@ use Sinergia\Shared\Clock\Clock;
  */
 final class ManualBatchAffiliateLinkProvider implements AffiliateLinkProvider
 {
-    public const int MAX_BATCH_ITEMS = 50;
+    /** O Gerador de Links do Mercado Livre aceita até 30 URLs por vez. */
+    public const int MAX_BATCH_ITEMS = 30;
     public const int MAX_PASTE_BYTES = 200_000;
     public const int BATCH_TTL_HOURS = 48;
 

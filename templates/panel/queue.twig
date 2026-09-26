@@ -90,7 +90,7 @@
         {% if not batch %}
             <form method="post" action="/fila/links/exportar">
                 <input type="hidden" name="_csrf" value="{{ csrf }}">
-                <button type="submit" class="primary-inline"{% if awaiting is empty %} disabled{% endif %}>Copiar URLs</button>
+                <button type="submit" class="primary-inline"{% if nextBatchSize == 0 %} disabled{% endif %}>Copiar URLs ({{ nextBatchSize }} produtos)</button>
             </form>
         {% endif %}
     </header>
@@ -124,25 +124,41 @@
         {% if batch.status == 'preview' %}
         <section class="subcard">
             <h3>3. Confira e confirme</h3>
+            {% if countMismatch %}
+                <p class="alert" role="alert">⚠️ Foram encontrados {{ lines|length }} links para um lote de {{ batch.items|length }} produtos. Confira as associações antes de confirmar.</p>
+            {% endif %}
             {% if anomalies is not empty %}
                 <p class="alert" role="alert">Nada foi associado automaticamente: {{ anomalies|join('; ') }}. Associe manualmente cada link ao produto certo ou cole de novo.</p>
             {% else %}
-                <p class="notice">Os links foram propostos pela ordem. Confira cada produto antes de confirmar.</p>
+                <p class="notice">Os links foram propostos pela ordem (link 1 → produto 1, link 2 → produto 2…). Confira antes de confirmar.</p>
             {% endif %}
-            <form method="post" action="/fila/links/{{ batch.key }}/confirmar">
+            <form method="post" action="/fila/links/{{ batch.key }}/confirmar" class="bulk-select">
                 <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <input type="hidden" name="com_selecao" value="1">
+                <div class="row-actions">
+                    <a class="button" href="/fila?selecao=todos#afiliados">✓ Selecionar todos</a>
+                    <a class="button" href="/fila?selecao=nenhum#afiliados">Desmarcar todos</a>
+                </div>
+                <p class="muted small">Só entram na confirmação as linhas marcadas. Linhas inválidas ou em conflito não podem ser marcadas.</p>
                 <div class="table-wrap">
                 <table class="dest-table">
-                    <thead><tr><th>Linha</th><th>Link recebido</th><th>Formato</th><th>Evidência</th><th>Produto</th></tr></thead>
+                    <thead><tr><th>Incluir</th><th>Linha</th><th>Link recebido</th><th>Formato</th><th>Evidência</th><th>Produto</th></tr></thead>
                     <tbody>
                     {% for line in lines %}
                         <tr>
+                            <td>
+                                {% if line.selectable %}
+                                    <input type="checkbox" class="bulk-check" name="incluir[{{ line.no }}]" value="1" aria-label="Incluir linha {{ line.no }}"{% if line.checked %} checked{% endif %}>
+                                {% else %}
+                                    <input type="checkbox" aria-label="Linha {{ line.no }} não pode ser incluída" disabled>
+                                {% endif %}
+                            </td>
                             <td>{{ line.no }}</td>
                             <td class="mono">{{ line.text }}</td>
                             <td><span class="pill{{ line.valid ? ' ok' : ' bad' }}">{{ line.format }}</span></td>
                             <td>{{ line.evidence }}</td>
                             <td>
-                                {% if line.valid %}
+                                {% if line.selectable %}
                                     <select name="associar[{{ line.no }}]" aria-label="Produto da linha {{ line.no }}">
                                         <option value="">Não associar</option>
                                         {% for item in batch.items %}
@@ -160,7 +176,9 @@
                 <ol class="batch-items">
                     {% for item in batch.items %}<li>{{ item.productName }} <span class="muted small mono">{{ item.originalUrl }}</span></li>{% endfor %}
                 </ol>
-                <div class="actions"><button type="submit" class="primary-inline">Confirmar associação selecionada</button></div>
+                {# O número acompanha as caixas marcadas via contador de CSS (sem JavaScript; CSP sem scripts). #}
+                <p class="bulk-summary" aria-live="polite"><strong class="bulk-count" data-inicial="{{ checkedCount }}"></strong> de {{ selectableCount }} associações selecionadas</p>
+                <div class="actions"><button type="submit" class="primary-inline">Confirmar <span class="bulk-count" data-inicial="{{ checkedCount }}"></span> associações</button></div>
             </form>
         </section>
         {% endif %}

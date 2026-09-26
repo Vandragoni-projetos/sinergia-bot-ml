@@ -44,6 +44,7 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
     private const string L3 = 'https://meli.la/9QzXk2p';   // fictício, mesmo formato
 
     private \PDO $db;
+    private Container $container;
     private Installation $a;
     private Installation $b;
     private int $ana;
@@ -90,6 +91,7 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $container->set('ml.http', $refuse);
         $container->set('whatsapp.http', $refuse);
         $container->set(LoggerInterface::class, LoggerFactory::create('local', new TestHandler()));
+        $this->container = $container;
         $this->app = HttpApp::create($container);
     }
 
@@ -310,6 +312,161 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         self::assertSame([['exported']], $this->rows('SELECT status FROM affiliate_link_batches'));
     }
 
+    public function testBatchIsCappedAtThirtyAndTheButtonShowsTheCount(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+
+        self::assertStringContainsString('Copiar URLs (30 produtos)', $this->page($ana));
+        $key = $this->export($ana);
+
+        self::assertCount(30, explode("\n", $this->exportTextOf($key)));
+        self::assertSame([['30']], $this->rows('SELECT item_count FROM affiliate_link_batches WHERE public_key = ?', [$key]));
+        self::assertStringContainsString('1. Copie as URLs (30 produtos)', $this->page($ana));
+    }
+
+    public function testThirtyLinksInOrderAreProposedOneToOneAndAllPreselected(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", self::thirtyLinks())]);
+        $page = $this->page($ana);
+
+        $keys = $this->itemKeys($key);
+        $expected = [];
+        foreach (range(1, 30) as $n) {
+            $expected[$n] = $keys[$n];   // link n → produto n
+        }
+        self::assertSame($expected, $this->proposed($page));
+        self::assertSame(range(1, 30), $this->checkedLines($page));
+        self::assertStringContainsString('✓ Selecionar todos', $page);
+        self::assertStringContainsString('Desmarcar todos', $page);
+        self::assertStringContainsString('de 30 associações selecionadas', $page);
+        self::assertStringContainsString('data-inicial="30"', $page);
+        self::assertStringContainsString('Confirmar <span class="bulk-count" data-inicial="30"></span> associações', $page);
+        self::assertSame(0, $this->tableCount('affiliate_links'), 'A prévia nunca grava.');
+    }
+
+    public function testDeselectAllAndSelectAll(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", self::thirtyLinks())]);
+
+        $none = (string) $this->httpGet('/fila', ['sbm_session' => $ana], ['selecao' => 'nenhum'])->getBody();
+        self::assertSame([], $this->checkedLines($none));
+        self::assertStringContainsString('data-inicial="0"', $none);
+        self::assertCount(30, $this->proposed($none), 'Desmarcar não apaga as propostas, só a seleção.');
+
+        $all = (string) $this->httpGet('/fila', ['sbm_session' => $ana], ['selecao' => 'todos'])->getBody();
+        self::assertSame(range(1, 30), $this->checkedLines($all));
+    }
+
+    public function testBulkConfirmationKeepsIdentityOfferAndExactLinkAndHonoursAnUncheckedLine(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+        $links = self::thirtyLinks();
+        $links[0] = '  ' . $links[0] . ' ';   // espaços nas pontas: o link é guardado sem eles, nada mais muda
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\r\n", $links)]);
+        $proposed = $this->proposed($this->page($ana));
+
+        // Todas marcadas, menos a linha 7 (desmarcada individualmente antes de confirmar).
+        $included = array_fill_keys(array_diff(range(1, 30), [7]), '1');
+        $response = $this->post($ana, "/fila/links/$key/confirmar", ['com_selecao' => '1', 'associar' => $proposed, 'incluir' => $included]);
+
+        self::assertSame('/fila?ok=confirmado&resumo=29-0-0-1#afiliados', $response->getHeaderLine('Location'));
+        $rows = $this->rows(
+            'SELECT i.position, l.ml_product_id, l.offer_item_id, l.affiliate_url, HEX(l.affiliate_url), l.original_url
+             FROM affiliate_links l JOIN affiliate_link_batch_items i ON i.id = l.batch_item_id ORDER BY i.position'
+        );
+        self::assertCount(29, $rows);
+        self::assertNotContains('7', array_column($rows, 0), 'Linha desmarcada não entra.');
+        foreach ($rows as [$position, $product, $offer, $url, $hex, $original]) {
+            $n = (int) $position;
+            self::assertSame(sprintf('MLB2000%02d', $n), $product);
+            self::assertSame(sprintf('MLB72000%02d', $n), $offer);
+            self::assertSame(sprintf('https://meli.la/Lote30n%02d', $n), $url, 'Link exatamente como colado.');
+            self::assertSame(strtoupper(bin2hex($url)), $hex);
+            self::assertSame(sprintf('https://produto.mercadolivre.com.br/MLB-72000%02d', $n), $original);
+        }
+        self::assertSame([['0']], $this->rows("SELECT COUNT(*) FROM affiliate_links WHERE ml_product_id = 'MLB200007'"));
+        self::assertSame([['partially_confirmed', '29']], $this->rows('SELECT status, confirmed_count FROM affiliate_link_batches WHERE public_key = ?', [$key]));
+    }
+
+    public function testFewerLinksThanProductsAreNeverAssociatedByPositionSilently(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+
+        // O Gerador recusou 2 URLs ("Este URL não é permitido pelo Programa."): vieram 28 links para 30 produtos.
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", array_slice(self::thirtyLinks(), 0, 28))]);
+        $page = $this->page($ana);
+
+        self::assertStringContainsString('⚠️ Foram encontrados 28 links para um lote de 30 produtos. Confira as associações antes de confirmar.', $page);
+        self::assertSame([], $this->proposed($page), 'Nada proposto por posição.');
+        self::assertSame([], $this->checkedLines($page), 'Nada marcado.');
+        self::assertStringContainsString('data-inicial="0"', $page);
+        // Seleção manual continua possível (select e caixa de cada linha válida).
+        self::assertSame(28, preg_match_all('#name="incluir\[\d+\]"#', $page));
+
+        // Confirmar sem escolher produto não grava nada.
+        $response = $this->post($ana, "/fila/links/$key/confirmar", ['com_selecao' => '1', 'associar' => array_fill(1, 28, ''), 'incluir' => array_fill(1, 28, '1')]);
+        self::assertStringContainsString('erro=nothing_selected', $response->getHeaderLine('Location'));
+        self::assertSame(0, $this->tableCount('affiliate_links'));
+    }
+
+    public function testInvalidLineIsNeverSelected(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+        $links = self::thirtyLinks();
+        $links[3] = 'Este URL não é permitido pelo Programa.';
+
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", $links)]);
+        $page = $this->page($ana);
+
+        self::assertStringNotContainsString('name="incluir[4]"', $page, 'Linha inválida não tem caixa ativa.');
+        self::assertStringNotContainsString('name="associar[4]"', $page);
+        self::assertStringContainsString('Linha 4 não pode ser incluída', $page);
+        self::assertSame([], $this->checkedLines($page));
+        self::assertSame([], $this->proposed($page), 'Com anomalia nada é proposto por posição.');
+
+        // Mesmo forjando o formulário, o backend recusa a linha inválida.
+        $keys = $this->itemKeys($key);
+        $response = $this->post($ana, "/fila/links/$key/confirmar", ['com_selecao' => '1', 'associar' => [4 => $keys[4]], 'incluir' => [4 => '1']]);
+        self::assertStringContainsString('erro=invalid_line', $response->getHeaderLine('Location'));
+        self::assertSame(0, $this->tableCount('affiliate_links'));
+    }
+
+    public function testConflictLineIsNeverSelectable(): void
+    {
+        $this->container->set(BatchMatcher::class, new BatchMatcher([new MeliLaShortLinkFormat(), new TestIdFormat()]));
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+        $links = self::thirtyLinks();
+        $links[1] = 'https://ids.example.test/MLB999999/outro';   // indica OUTRO produto na posição 2
+
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", $links)]);
+        $page = $this->page($ana);
+
+        self::assertStringNotContainsString('name="incluir[2]"', $page);
+        self::assertStringContainsString('Linha 2 não pode ser incluída', $page);
+        self::assertSame([], $this->checkedLines($page));
+
+        $keys = $this->itemKeys($key);
+        $response = $this->post($ana, "/fila/links/$key/confirmar", ['com_selecao' => '1', 'associar' => [2 => $keys[2]], 'incluir' => [2 => '1']]);
+        self::assertStringContainsString('erro=id_conflict', $response->getHeaderLine('Location'));
+        self::assertSame(0, $this->tableCount('affiliate_links'));
+    }
+
     public function testSameLinkForAnotherOfferIsNotReusedAndTheBindingFollowsTheNewOffer(): void
     {
         $provider = $this->provider();
@@ -440,6 +597,38 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         }
 
         return $out;
+    }
+
+    /** 31 produtos fictícios (MLB200001…31) numa seleção mais nova da conta A: o lote leva só 30. */
+    private function thirtyOneCandidates(): void
+    {
+        $ids = [];
+        foreach (range(1, 31) as $n) {
+            $id = sprintf('MLB2000%02d', $n);
+            $this->db->prepare("INSERT INTO ml_products (ml_product_id, site_id, status, name, domain_id, permalink, picture_url, pictures_count, fetched_at)
+                VALUES (?, 'MLB', 'ok', ?, 'MLB-X', NULL, 'https://http2.mlstatic.com/x.jpg', 1, NOW(3))")->execute([$id, 'Produto lote ' . $n]);
+            $ids[] = $id;
+        }
+        $this->candidates($this->a, $ids);
+    }
+
+    /** @return list<string> 30 links no formato do Gerador, na ordem do lote */
+    private static function thirtyLinks(): array
+    {
+        return array_map(static fn (int $n): string => sprintf('https://meli.la/Lote30n%02d', $n), range(1, 30));
+    }
+
+    private function exportTextOf(string $batchKey): string
+    {
+        return implode("\n", array_column($this->rows('SELECT i.original_url FROM affiliate_link_batch_items i JOIN affiliate_link_batches b ON b.id = i.batch_id WHERE b.public_key = ? ORDER BY i.position', [$batchKey]), 0));
+    }
+
+    /** @return list<int> linhas com a caixa "incluir" marcada */
+    private function checkedLines(string $html): array
+    {
+        preg_match_all('#name="incluir\[(\d+)\]"[^>]*\bchecked\b#', $html, $m);
+
+        return array_map('intval', $m[1]);
     }
 
     private function batchKey(string $html): string
