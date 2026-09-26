@@ -7,7 +7,7 @@ namespace Sinergia\Application\Onboarding;
 /**
  * Passos do onboarding (plano F1 v2.1: Conectar → Nichos → Destinos → 1º lote de links → Ativar), derivados SÓ dos
  * dados da conta. Critérios de conclusão:
- *   1 mercado_livre  conexão Mercado Livre ativa E declaração de Mídia registrada (não retirada)
+ *   1 mercado_livre  conexão Mercado Livre ativa (a declaração de Mídias da conta é opcional e não trava o onboarding)
  *   2 nichos         pelo menos 1 subnicho ativado (com categoria aprovada no catálogo)
  *   3 whatsapp       WhatsApp da conta conectado
  *   4 destinos       pelo menos 1 destino ATIVO (elegível, configurado com nicho/subnicho e não pausado)
@@ -25,13 +25,9 @@ final class OnboardingChecklist
         $this->steps = [
             new OnboardingStep(
                 'mercado_livre', 'Conectar o Mercado Livre',
-                $f->mercadoLivreConnected && $f->mediaDeclared,
-                match (true) {
-                    !$f->mercadoLivreConnected => 'Mercado Livre não conectado',
-                    !$f->mediaDeclared => 'Falta a declaração de Mídias',
-                    default => 'Mercado Livre conectado e Mídias declaradas',
-                },
-                !$f->mercadoLivreConnected ? 'Conecte a sua conta do Mercado Livre.' : 'Registre a declaração de Mídias no bloco Afiliado.',
+                $f->mercadoLivreConnected,
+                $f->mercadoLivreConnected ? 'Mercado Livre conectado' : 'Mercado Livre não conectado',
+                'Conecte a sua conta do Mercado Livre.',
                 '/conexoes', 'Ir para Conexões',
             ),
             new OnboardingStep(

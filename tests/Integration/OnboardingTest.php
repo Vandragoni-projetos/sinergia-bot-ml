@@ -18,7 +18,6 @@ use Sinergia\Domain\Installation\Installation;
 use Sinergia\Infrastructure\Crypto\SecretBox;
 use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
 use Sinergia\Infrastructure\Persistence\InstallationRepository;
-use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlCredentialRepository;
 use Sinergia\Infrastructure\Persistence\UserRepository;
 use Sinergia\Infrastructure\Persistence\WhatsAppConnectionRepository;
@@ -138,11 +137,12 @@ final class OnboardingTest extends DatabaseTestCase
     {
         $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
         $this->complete($this->a, $this->ana, except: ['mercado_livre']);
-        // Mercado Livre conectado, mas sem a declaração de Mídias.
+        // Credencial do Mercado Livre existe, mas não está conectada (revogada): passo pendente.
         $this->connectMercadoLivre($this->a);
+        $this->db->exec("UPDATE ml_credentials SET status = 'revoked' WHERE installation_id = " . $this->a->id->value);
         self::assertSame('/comecar?pendente=mercado_livre', $this->post($ana, '/comecar/ativar')->getHeaderLine('Location'));
-        self::assertStringContainsString('Falta a declaração de Mídias', $this->page($ana));
-        (new MediaDeclarationRepository($this->db))->declare($this->a->id, $this->ana, 'v1', new \DateTimeImmutable());
+        self::assertStringContainsString('Mercado Livre não conectado', $this->page($ana));
+        $this->db->exec("UPDATE ml_credentials SET status = 'connected' WHERE installation_id = " . $this->a->id->value);
 
         // Destino cadastrado, porém pausado: não conta como pronto.
         $this->db->exec("UPDATE destinations SET status = 'paused', user_paused = 1 WHERE installation_id = " . $this->a->id->value);
@@ -156,6 +156,39 @@ final class OnboardingTest extends DatabaseTestCase
         self::assertSame('/comecar?pendente=links', $this->post($ana, '/comecar/ativar')->getHeaderLine('Location'));
         self::assertStringContainsString('1 oferta(s) aguardando link', $this->page($ana));
         self::assertSame('paused', $this->botStatus($this->a));
+    }
+
+    public function testMercadoLivreStepDependsOnlyOnTheConnectionAndMediaDeclarationDoesNotInterfere(): void
+    {
+        $this->complete($this->a, $this->ana);
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        self::assertSame([['0']], $this->rows('SELECT COUNT(*) FROM affiliate_media_declarations'));
+
+        // Conectado e SEM declaração de Mídias: passo concluído.
+        $page = $this->page($ana);
+        self::assertStringContainsString('5 de 5 passos concluídos', $page);
+        self::assertStringContainsString('Mercado Livre conectado', $page);
+        self::assertStringNotContainsString('declaração de Mídias', $page);
+
+        // Desconectado: pendente de novo; reconectado: concluído.
+        $this->db->exec("UPDATE ml_credentials SET status = 'expired' WHERE installation_id = " . $this->a->id->value);
+        self::assertStringContainsString('4 de 5 passos concluídos', $this->page($ana));
+        self::assertSame('/comecar?pendente=mercado_livre', $this->post($ana, '/fila/bot/ativar')->getHeaderLine('Location'));
+        $this->db->exec("UPDATE ml_credentials SET status = 'connected' WHERE installation_id = " . $this->a->id->value);
+
+        // Registrar e remover a declaração pelo painel continua funcionando e não muda o checklist.
+        self::assertSame('/conexoes?afiliado=declarado', $this->post($ana, '/conexoes/afiliado/declaracao', ['acao' => 'declarar', 'confirmo' => '1'])->getHeaderLine('Location'));
+        self::assertSame([['1', '0']], $this->rows('SELECT COUNT(*), SUM(revoked_at IS NOT NULL) FROM affiliate_media_declarations WHERE installation_id = ?', [$this->a->id->value]));
+        self::assertStringContainsString('5 de 5 passos concluídos', $this->page($ana));
+        self::assertSame('/conexoes?afiliado=removido', $this->post($ana, '/conexoes/afiliado/declaracao', ['acao' => 'remover'])->getHeaderLine('Location'));
+        self::assertSame([['1', '1']], $this->rows('SELECT COUNT(*), SUM(revoked_at IS NOT NULL) FROM affiliate_media_declarations WHERE installation_id = ?', [$this->a->id->value]));
+        self::assertStringContainsString('5 de 5 passos concluídos', $this->page($ana));
+        self::assertSame('paused', $this->botStatus($this->a), 'Nada disso ativa o bot.');
+
+        // Sem declaração vigente, a ativação (só por ação explícita) é aceita.
+        self::assertSame('/fila?ok=bot_ativado', $this->post($ana, '/comecar/ativar')->getHeaderLine('Location'));
+        self::assertSame('active', $this->botStatus($this->a));
+        self::assertSame('paused', $this->botStatus($this->b), 'Outra conta não é afetada.');
     }
 
     public function testCompleteOnboardingNeverActivatesAloneAndValidActivationGoesToQueue(): void
@@ -237,9 +270,9 @@ final class OnboardingTest extends DatabaseTestCase
     /** @param list<string> $except */
     private function complete(Installation $inst, int $user, array $except = []): void
     {
+        // Passo Mercado Livre = só a conexão; a declaração de Mídias da conta NÃO é registrada aqui (não é exigida).
         if (!in_array('mercado_livre', $except, true)) {
             $this->connectMercadoLivre($inst);
-            (new MediaDeclarationRepository($this->db))->declare($inst->id, $user, 'v1', new \DateTimeImmutable());
         }
         // Subnicho é pré-requisito de destino pronto (FK); "sem nichos" é simulado desativando o nicho no catálogo no fim.
         $this->chooseNiche($inst, $user);
