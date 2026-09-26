@@ -175,6 +175,52 @@ final class Config
         return $url;
     }
 
+    public const string WHATSAPP_UAZAPI = 'uazapi';
+    public const string WHATSAPP_EVOLUTION = 'evolution';
+
+    /** Provedor de WhatsApp do servidor: 'uazapi' (padrão, compatível com o que já existia) ou 'evolution'. */
+    public function whatsAppProvider(): string
+    {
+        $provider = $this->optionalString('WHATSAPP_PROVIDER') ?? self::WHATSAPP_UAZAPI;
+        if (!in_array($provider, [self::WHATSAPP_UAZAPI, self::WHATSAPP_EVOLUTION], true)) {
+            throw ConfigException::invalid('WHATSAPP_PROVIDER', 'uazapi|evolution');
+        }
+
+        return $provider;
+    }
+
+    /** O provedor escolhido tem a configuração mínima para funcionar. */
+    public function hasWhatsApp(): bool
+    {
+        return $this->whatsAppProvider() === self::WHATSAPP_EVOLUTION ? $this->hasEvolution() : $this->hasUazapi();
+    }
+
+    public function hasEvolution(): bool
+    {
+        return $this->optionalString('EVOLUTION_BASE_URL') !== null;
+    }
+
+    /**
+     * Evolution API self-hosted (validada para a versão 2.3.7). Só a URL base: a chave GLOBAL da Evolution nunca é
+     * lida pelo BotML (opção C) — cada conta usa a credencial da própria instância, gravada cifrada.
+     */
+    public function evolution(): EvolutionConfig
+    {
+        if (!$this->hasEvolution()) {
+            throw ConfigException::missing(['EVOLUTION_BASE_URL']);
+        }
+        $url = rtrim((string) $this->optionalString('EVOLUTION_BASE_URL'), '/');
+        $parts = parse_url($url);
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || !isset($parts['host']) || isset($parts['query']) || isset($parts['user']) || isset($parts['fragment'])) {
+            throw ConfigException::invalid('EVOLUTION_BASE_URL', 'URL https do servidor, sem parâmetros');
+        }
+
+        return new EvolutionConfig(
+            baseUrl: $url,
+            timeoutSeconds: $this->int('EVOLUTION_HTTP_TIMEOUT_SECONDS', 15, 1, 60),
+        );
+    }
+
     public function hasUazapi(): bool
     {
         return $this->optionalString('UAZAPI_BASE_URL') !== null && $this->optionalString('UAZAPI_ADMIN_TOKEN') !== null;

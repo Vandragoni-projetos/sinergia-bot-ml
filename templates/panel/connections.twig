@@ -124,6 +124,8 @@
                 <span class="pill bad">Erro</span>
             {% elseif card.state == 'unavailable' %}
                 <span class="pill">Indisponível</span>
+            {% elseif card.state == 'not_provisioned' %}
+                <span class="pill">Não liberado</span>
             {% else %}
                 <span class="pill">Não conectado</span>
             {% endif %}
@@ -165,6 +167,8 @@
             </form>
         {% elseif card.state == 'unavailable' %}
             <p class="muted">A conexão do WhatsApp ainda não está disponível neste servidor.</p>
+        {% elseif card.state == 'not_provisioned' %}
+            <p>WhatsApp ainda não está liberado para esta conta. Fale com o suporte do SINERGIA BOT ML para liberar.</p>
         {% else %}
             {% if card.state == 'expired' %}
                 <p>O código de conexão expirou sem ser lido. Gere um novo para continuar.</p>
@@ -187,6 +191,9 @@
                     <button type="submit">Receber código</button>
                 </div>
             </form>
+        {% endif %}
+        {% if wa.provider == 'evolution' %}
+            <p class="muted small">A conexão com o WhatsApp usa a Evolution API, software de código aberto de terceiros, instalado no servidor do SINERGIA BOT ML.</p>
         {% endif %}
     </section>
 </div>

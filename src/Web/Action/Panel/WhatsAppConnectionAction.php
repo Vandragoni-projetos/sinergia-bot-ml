@@ -11,6 +11,7 @@ use Sinergia\Application\Auth\TenantContext;
 use Sinergia\Application\Port\WhatsApp\WhatsAppProviderFailure;
 use Sinergia\Application\WhatsApp\ManageWhatsAppConnection;
 use Sinergia\Application\WhatsApp\WhatsAppBusy;
+use Sinergia\Application\WhatsApp\WhatsAppNotProvisioned;
 use Sinergia\Application\WhatsApp\WhatsAppUnavailable;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 use Sinergia\Web\Security\Csrf;
@@ -60,6 +61,8 @@ final class WhatsAppConnectionAction
             $result = 'aguarde';
         } catch (WhatsAppUnavailable) {
             $result = 'erro&motivo=unavailable';
+        } catch (WhatsAppNotProvisioned) {
+            $result = 'erro&motivo=nao_liberado';
         } catch (WhatsAppProviderFailure $e) {
             $result = 'erro&motivo=' . rawurlencode($e->errorCode);
         }

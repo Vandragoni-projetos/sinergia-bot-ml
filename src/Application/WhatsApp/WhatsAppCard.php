@@ -11,6 +11,8 @@ namespace Sinergia\Application\WhatsApp;
 final readonly class WhatsAppCard
 {
     public const string UNAVAILABLE = 'unavailable';
+    /** Provedor sem criação automática e conta sem instância atribuída pelo administrador. */
+    public const string NOT_PROVISIONED = 'not_provisioned';
     public const string NOT_CONNECTED = 'not_connected';
     public const string WAITING = 'waiting';
     public const string EXPIRED = 'expired';

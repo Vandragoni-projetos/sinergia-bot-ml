@@ -15,6 +15,7 @@ use Sinergia\Application\WhatsApp\WhatsAppCard;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
 use Sinergia\Shared\Clock\Clock;
+use Sinergia\Shared\Config\Config;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 use Sinergia\Web\Security\Csrf;
 use Sinergia\Web\View\Views;
@@ -48,6 +49,7 @@ final class ConnectionsPageAction
         'http_error' => 'O serviço de WhatsApp recusou a operação.',
         'conflict' => 'Já existe uma conexão em andamento.',
         'unavailable' => 'A integração com o WhatsApp não está configurada neste servidor.',
+        'nao_liberado' => 'WhatsApp ainda não está liberado para esta conta.',
         'telefone_invalido' => 'Informe o número com DDI e DDD, só números (ex.: 5511999999999).',
     ];
 
@@ -114,6 +116,8 @@ final class ConnectionsPageAction
 
         return [
             'card' => $card,
+            // Aviso de uso da Evolution API (licença da 2.3.7, cláusula 1.b): visível aos administradores da conta.
+            'provider' => $this->container->get(Config::class)->whatsAppProvider(),
             'feedback' => in_array($feedback, ['conectando', 'desconectado', 'aguarde'], true) ? $feedback : null,
             'error' => $errorCode === null || $errorCode === '' ? null : (self::WA_ERRORS[$errorCode] ?? 'Não foi possível concluir a operação no WhatsApp.'),
             // Atualiza a página enquanto o QR/código vale (o QR muda no provedor; nunca exibimos um antigo).

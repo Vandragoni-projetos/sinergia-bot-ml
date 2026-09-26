@@ -16,6 +16,7 @@ use Sinergia\Application\Affiliate\ManualBatchAffiliateLinkProvider;
 use Sinergia\Application\Affiliate\MeliLaShortLinkFormat;
 use Sinergia\Application\Destination\ManageDestinations;
 use Sinergia\Application\Port\Affiliate\AffiliateLinkProvider;
+use Sinergia\Application\Port\WhatsApp\WhatsAppProvider;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
 use Sinergia\Application\Onboarding\ActivateBot;
@@ -61,6 +62,7 @@ use Sinergia\Integration\MercadoLivre\Http\MercadoLivreClient;
 use Sinergia\Integration\MercadoLivre\OAuth\OAuthClient;
 use Sinergia\Integration\MercadoLivre\OAuth\StoredTokenProvider;
 use Sinergia\Integration\MercadoLivre\Product\MercadoLivreCatalogSourceFactory;
+use Sinergia\Integration\WhatsApp\Evolution\EvolutionProvider;
 use Sinergia\Integration\WhatsApp\Uazapi\UazapiProvider;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Clock\SystemClock;
@@ -209,9 +211,13 @@ final class Kernel
                 $c->get(LoggerInterface::class),
                 $c->get(Config::class)->siteId(),
             )),
-            // WhatsApp por conta (F1, etapa 5): provedor Uazapi atrás do contrato WhatsAppProvider.
+            // WhatsApp por conta: provedor escolhido por WHATSAPP_PROVIDER (uazapi | evolution) atrás do contrato WhatsAppProvider.
             'whatsapp.http' => factory(static function (Config $c) {
-                $timeout = $c->hasUazapi() ? $c->uazapi()->timeoutSeconds : 15;
+                $timeout = match (true) {
+                    $c->whatsAppProvider() === Config::WHATSAPP_EVOLUTION && $c->hasEvolution() => $c->evolution()->timeoutSeconds,
+                    $c->whatsAppProvider() === Config::WHATSAPP_UAZAPI && $c->hasUazapi() => $c->uazapi()->timeoutSeconds,
+                    default => 15,
+                };
 
                 return new GuzzleClient([
                     'timeout' => $timeout,
@@ -227,23 +233,37 @@ final class Kernel
                 $c->get(Config::class)->uazapi(),
                 $c->get(LoggerInterface::class),
             )),
+            // Evolution API self-hosted (validada na 2.3.7), opção C: só a URL base — nunca a chave global.
+            EvolutionProvider::class => factory(static fn (ContainerInterface $c) => new EvolutionProvider(
+                $c->get('whatsapp.http'),
+                $c->get(HttpFactory::class),
+                $c->get(HttpFactory::class),
+                $c->get(Config::class)->evolution(),
+                $c->get(LoggerInterface::class),
+            )),
+            WhatsAppProvider::class => factory(static fn (ContainerInterface $c): WhatsAppProvider => $c->get(Config::class)->whatsAppProvider() === Config::WHATSAPP_EVOLUTION
+                ? $c->get(EvolutionProvider::class)
+                : $c->get(UazapiProvider::class)),
             WhatsAppConnectionRepository::class => factory(static fn (ContainerInterface $c) => new WhatsAppConnectionRepository(
                 $c->get(\PDO::class),
                 $c->get(SecretBox::class),
             )),
             ManageWhatsAppConnection::class => factory(static fn (ContainerInterface $c) => new ManageWhatsAppConnection(
                 $c->get(WhatsAppConnectionRepository::class),
-                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
-                $c->get(Config::class)->hasUazapi(),
+                static fn (): WhatsAppProvider => $c->get(WhatsAppProvider::class),
+                $c->get(Config::class)->hasWhatsApp(),
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
+                $c->get(Config::class)->whatsAppProvider(),
+                // Evolution (opção C): instância atribuída pelo administrador; o BotML nunca cria instância.
+                $c->get(Config::class)->whatsAppProvider() === Config::WHATSAPP_UAZAPI,
             )),
             // Destinos (F1, etapa 6): só da própria conexão WhatsApp da conta.
             DestinationRepository::class => factory(static fn (ContainerInterface $c) => new DestinationRepository($c->get(\PDO::class))),
             ManageDestinations::class => factory(static fn (ContainerInterface $c) => new ManageDestinations(
                 $c->get(DestinationRepository::class),
                 $c->get(WhatsAppConnectionRepository::class),
-                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
+                static fn (): WhatsAppProvider => $c->get(WhatsAppProvider::class),
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
                 $c->get(Config::class)->whatsAppTestImageUrl(),
@@ -268,7 +288,7 @@ final class Kernel
             QueueSender::class => factory(static fn (ContainerInterface $c) => new QueueSender(
                 $c->get(DispatchQueueRepository::class),
                 $c->get(WhatsAppConnectionRepository::class),
-                static fn (): UazapiProvider => $c->get(UazapiProvider::class),
+                static fn (): WhatsAppProvider => $c->get(WhatsAppProvider::class),
                 $c->get(MercadoLivreCatalogSourceFactory::class),
                 new OfferChooser(),
                 new MessageBuilder(),

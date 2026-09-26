@@ -17,6 +17,8 @@ use Sinergia\Shared\Clock\Clock;
  * - Uma instância por conta; criar/conectar/desconectar acontece sob trava da conta (clique duplo e concorrência).
  * - QR/código de pareamento valem por CONNECT_WINDOW_SECONDS; depois disso nada antigo é exibido.
  * - Nenhum token é devolvido para a camada web.
+ * - Com $autoCreateInstances = false (Evolution API, opção C) o BotML NUNCA cria instância: a conta precisa de uma
+ *   instância atribuída pelo administrador; sem ela, WhatsAppNotProvisioned ("ainda não liberado").
  */
 final class ManageWhatsAppConnection
 {
@@ -35,6 +37,8 @@ final class ManageWhatsAppConnection
         private readonly bool $available,
         private readonly Clock $clock,
         private readonly LoggerInterface $logger,
+        private readonly string $providerName = self::PROVIDER,
+        private readonly bool $autoCreateInstances = true,
     ) {
     }
 
@@ -54,7 +58,13 @@ final class ManageWhatsAppConnection
         try {
             $outcome = $this->store->withLock($installation, function () use ($tenant, $installation, $phone): string {
                 $now = $this->clock->now();
-                $this->store->ensure($installation, self::PROVIDER, self::newInstanceName($tenant), $tenant->userId, $now);
+                if (!$this->autoCreateInstances) {
+                    $existing = $this->store->find($installation);
+                    if ($existing === null || $existing->token === null) {
+                        throw new WhatsAppNotProvisioned('WhatsApp ainda não está liberado para esta conta.');
+                    }
+                }
+                $this->store->ensure($installation, $this->providerName, self::newInstanceName($tenant), $tenant->userId, $now);
                 $current = $this->store->find($installation) ?? throw new \LogicException('Conexão não gravada.');
 
                 if ($current->status === 'connecting' && $current->connectStartedAt !== null && $this->age($current->connectStartedAt) < self::CONNECT_WINDOW_SECONDS) {
@@ -77,6 +87,13 @@ final class ManageWhatsAppConnection
                 try {
                     $snapshot = $provider->connect($token, $phone);
                 } catch (WhatsAppProviderFailure $e) {
+                    if (!$created && !$this->autoCreateInstances && in_array($e->errorCode, [WhatsAppProviderFailure::UNAUTHORIZED, WhatsAppProviderFailure::NOT_FOUND], true)) {
+                        // Instância atribuída foi removida/invalidada no provedor: esquece a credencial e NÃO cria outra.
+                        $this->store->clearInstance($installation, self::newInstanceName($tenant), $now);
+                        $this->logger->warning('whatsapp.instance_invalidated', ['installation_id' => $installation->value, 'error' => $e->errorCode]);
+
+                        throw new WhatsAppNotProvisioned('WhatsApp ainda não está liberado para esta conta.');
+                    }
                     if (!$created && in_array($e->errorCode, [WhatsAppProviderFailure::UNAUTHORIZED, WhatsAppProviderFailure::NOT_FOUND], true)) {
                         // Instância removida/invalidada no provedor: cria UMA nova para esta conta e tenta uma vez.
                         $name = self::newInstanceName($tenant);
@@ -149,6 +166,9 @@ final class ManageWhatsAppConnection
         }
         $installation = $tenant->installationId;
         $current = $this->store->find($installation);
+        if (!$this->autoCreateInstances && ($current === null || $current->token === null)) {
+            return new WhatsAppCard(WhatsAppCard::NOT_PROVISIONED);
+        }
         if ($current === null || ($current->token === null && $current->lastErrorCode === null)) {
             return new WhatsAppCard(WhatsAppCard::NOT_CONNECTED);
         }

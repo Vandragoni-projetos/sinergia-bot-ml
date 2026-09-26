@@ -28,9 +28,9 @@ interface WhatsAppConnectionStore
     public function find(InstallationId $installation): ?WhatsAppConnection;
 
     /** Cria a linha da conta (sem instância) se ainda não existir. */
-    public function ensure(InstallationId $installation, string $provider, string $instanceName, int $userId, \DateTimeImmutable $now): void;
+    public function ensure(InstallationId $installation, string $provider, string $instanceName, ?int $userId, \DateTimeImmutable $now): void;
 
-    public function storeInstance(InstallationId $installation, ProviderInstance $instance, int $userId, \DateTimeImmutable $now): void;
+    public function storeInstance(InstallationId $installation, ProviderInstance $instance, ?int $userId, \DateTimeImmutable $now): void;
 
     /** Esquece a instância (token inválido/instância removida no provedor). */
     public function clearInstance(InstallationId $installation, string $newInstanceName, \DateTimeImmutable $now): void;

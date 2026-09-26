@@ -16,6 +16,7 @@ use Sinergia\Cli\Command\OAuthStartCommand;
 use Sinergia\Cli\Command\OAuthStatusCommand;
 use Sinergia\Cli\Command\OffersSelectCommand;
 use Sinergia\Cli\Command\UserCreateCommand;
+use Sinergia\Cli\Command\WhatsAppInstanceAssignCommand;
 use Sinergia\Kernel;
 use Sinergia\Shared\Config\Config;
 use Symfony\Component\Console\Application;
@@ -39,6 +40,7 @@ final class ConsoleApplication
             new HighlightsCheckCommand($container),
             new OffersSelectCommand($container),
             new BotWorkerCommand($container),
+            new WhatsAppInstanceAssignCommand($container),
         ]);
 
         return $app;

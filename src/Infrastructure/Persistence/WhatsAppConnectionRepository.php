@@ -61,7 +61,7 @@ final class WhatsAppConnectionRepository implements WhatsAppConnectionStore
         );
     }
 
-    public function ensure(InstallationId $installation, string $provider, string $instanceName, int $userId, \DateTimeImmutable $now): void
+    public function ensure(InstallationId $installation, string $provider, string $instanceName, ?int $userId, \DateTimeImmutable $now): void
     {
         $this->pdo->prepare(
             'INSERT IGNORE INTO whatsapp_connections (installation_id, provider, instance_name, status, created_at, updated_at, updated_by_user_id)
@@ -69,7 +69,7 @@ final class WhatsAppConnectionRepository implements WhatsAppConnectionStore
         )->execute(['inst' => $installation->value, 'provider' => $provider, 'name' => $instanceName, 'at' => self::ts($now), 'at2' => self::ts($now), 'user' => $userId]);
     }
 
-    public function storeInstance(InstallationId $installation, ProviderInstance $instance, int $userId, \DateTimeImmutable $now): void
+    public function storeInstance(InstallationId $installation, ProviderInstance $instance, ?int $userId, \DateTimeImmutable $now): void
     {
         $this->update($installation, [
             'instance_name' => $instance->name,
