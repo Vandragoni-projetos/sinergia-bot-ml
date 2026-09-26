@@ -8,6 +8,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\Onboarding\ActivateBot;
 use Sinergia\Application\Destination\DestinationDeclarations;
 use Sinergia\Application\Destination\DestinationRecord;
 use Sinergia\Application\Destination\Eligibility;
@@ -123,6 +124,7 @@ final class DestinationsPageAction
         }
 
         return $this->container->get(Views::class)->render($response, 'panel/destinations.twig', [
+            'onboarding' => $this->container->get(ActivateBot::class)->checklist($tenant),
             'tenant' => $tenant,
             'current' => 'destinos',
             'nav' => PanelPageAction::PAGES,

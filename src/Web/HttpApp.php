@@ -23,6 +23,8 @@ use Sinergia\Web\Action\Panel\MediaDeclarationAction;
 use Sinergia\Web\Action\Panel\MercadoLivreConnectAction;
 use Sinergia\Web\Action\Panel\NicheSaveAction;
 use Sinergia\Web\Action\Panel\NichesPageAction;
+use Sinergia\Web\Action\Panel\OnboardingAction;
+use Sinergia\Web\Action\Panel\OnboardingPageAction;
 use Sinergia\Web\Action\Panel\LoginPageAction;
 use Sinergia\Web\Action\Panel\LoginSubmitAction;
 use Sinergia\Web\Action\Panel\LogoutAction;
@@ -85,6 +87,9 @@ final class HttpApp
                 'declarar' => DestinationAction::DECLARE, 'remover' => DestinationAction::REMOVE, 'teste' => DestinationAction::TEST] as $path => $operation) {
                 $panel->post('/destinos/{chave:[a-f0-9]{20}}/' . $path, new DestinationAction($container, $operation));
             }
+            $panel->get('/comecar', new OnboardingPageAction($container));
+            $panel->post('/comecar/ativar', new OnboardingAction($container, OnboardingAction::ACTIVATE));
+            $panel->post('/comecar/ofertas', new OnboardingAction($container, OnboardingAction::SEARCH));
             $panel->get('/fila', new QueuePageAction($container));
             $panel->post('/fila/links/exportar', new AffiliateBatchAction($container, AffiliateBatchAction::EXPORT));
             foreach (['colar' => AffiliateBatchAction::PASTE, 'confirmar' => AffiliateBatchAction::CONFIRM, 'descartar' => AffiliateBatchAction::CANCEL] as $path => $operation) {

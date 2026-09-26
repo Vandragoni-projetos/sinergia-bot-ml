@@ -94,7 +94,7 @@ final class PanelHttpTest extends DatabaseTestCase
     {
         $login = $this->login('ana@loja-a.test', self::PASSWORD);
         self::assertSame(302, $login->getStatusCode());
-        self::assertSame('/fila', $login->getHeaderLine('Location'));
+        self::assertSame('/', $login->getHeaderLine('Location'), 'A home decide: Primeiros passos ou Fila.');
         $session = $this->cookie($login, 'sbm_session');
         self::assertNotNull($session);
         $setCookie = implode("\n", $login->getHeader('Set-Cookie'));
@@ -116,8 +116,8 @@ final class PanelHttpTest extends DatabaseTestCase
             self::assertStringNotContainsString($session, $body, 'Token da sessão nunca aparece na página');
         }
 
-        self::assertSame('/fila', $this->get('/', $cookies)->getHeaderLine('Location'));
-        self::assertSame('/fila', $this->get('/entrar', $cookies)->getHeaderLine('Location'), 'Logado não vê a tela de entrada');
+        self::assertSame('/comecar', $this->get('/', $cookies)->getHeaderLine('Location'), 'Conta nova (bot pausado) começa pelos Primeiros passos.');
+        self::assertSame('/', $this->get('/entrar', $cookies)->getHeaderLine('Location'), 'Logado não vê a tela de entrada');
 
         // Logout exige CSRF da sessão.
         self::assertSame(400, $this->post('/sair', ['_csrf' => 'forjado'], $cookies)->getStatusCode());

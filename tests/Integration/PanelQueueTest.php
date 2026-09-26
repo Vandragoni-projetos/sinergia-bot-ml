@@ -111,8 +111,10 @@ final class PanelQueueTest extends DatabaseTestCase
         self::assertSame('/fila?ok=pulado', $this->post($ana, '/fila/itens/' . $this->keys['awaitA'] . '/pular')->getHeaderLine('Location'));
         self::assertSame('/fila?erro=item_not_found', $this->post($ana, '/fila/itens/' . $this->keys['sentA'] . '/pular')->getHeaderLine('Location'), 'Enviado não se pula.');
 
-        self::assertSame('/fila?ok=bot_ativado', $this->post($ana, '/fila/bot/ativar')->getHeaderLine('Location'));
-        self::assertSame([['active', (string) $this->ana]], $this->rows('SELECT bot_status, bot_status_changed_by FROM installations WHERE id = ?', [$this->a->id->value]));
+        // Ativar pela Fila passa pelo mesmo checklist dos Primeiros passos: conta incompleta não ativa.
+        self::assertSame('/comecar?pendente=mercado_livre', $this->post($ana, '/fila/bot/ativar')->getHeaderLine('Location'));
+        self::assertSame([['paused']], $this->rows('SELECT bot_status FROM installations WHERE id = ?', [$this->a->id->value]));
+        $this->db->prepare("UPDATE installations SET bot_status = 'active' WHERE id = ?")->execute([$this->a->id->value]);
         self::assertStringContainsString('Pausar bot', $this->page($ana));
         self::assertSame('/fila?ok=bot_pausado', $this->post($ana, '/fila/bot/pausar')->getHeaderLine('Location'));
         self::assertSame([['paused']], $this->rows('SELECT bot_status FROM installations WHERE id = ?', [$this->a->id->value]));

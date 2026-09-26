@@ -24,7 +24,7 @@ final class MigratorTest extends DatabaseTestCase
 
         $second = (new Migrator($pdo, dirname(__DIR__, 2) . '/database/migrations'))->migrate();
         self::assertSame([], $second, 'Segunda execução não aplica nada.');
-        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012'], $pdo->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function testDatabaseWithOnly0001IsUpgradedTo0002(): void
@@ -46,7 +46,7 @@ final class MigratorTest extends DatabaseTestCase
             self::assertSame(['0001'], (new Migrator($pdo, $dir))->migrate());
             self::assertSame('varchar', $this->scopesType($pdo));
 
-            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011'], (new Migrator($pdo, $migrations))->migrate());
+            self::assertSame(['0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012'], (new Migrator($pdo, $migrations))->migrate());
             self::assertSame('text', $this->scopesType($pdo));
         } finally {
             unlink($dir . '/0001_foundation.sql');

@@ -9,6 +9,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Affiliate\MediaDeclaration;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\Onboarding\ActivateBot;
 use Sinergia\Application\WhatsApp\ManageWhatsAppConnection;
 use Sinergia\Application\WhatsApp\WhatsAppCard;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
@@ -76,6 +77,7 @@ final class ConnectionsPageAction
         };
 
         return $this->container->get(Views::class)->render($response, 'panel/connections.twig', [
+            'onboarding' => $this->container->get(ActivateBot::class)->checklist($tenant),
             'tenant' => $tenant,
             'current' => 'conexoes',
             'nav' => PanelPageAction::PAGES,

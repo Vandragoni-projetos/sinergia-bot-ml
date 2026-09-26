@@ -10,6 +10,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Affiliate\BatchPreview;
 use Sinergia\Application\Affiliate\ReceivedLine;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\Onboarding\ActivateBot;
 use Sinergia\Infrastructure\Persistence\AffiliateLinkRepository;
 use Sinergia\Infrastructure\Persistence\DispatchQueueRepository;
 use Sinergia\Shared\Clock\Clock;
@@ -128,6 +129,7 @@ final class QueuePageAction
         }
 
         return $this->container->get(Views::class)->render($response, 'panel/queue.twig', [
+            'onboarding' => $this->container->get(ActivateBot::class)->checklist($tenant),
             'queue' => $overview,
             'tenant' => $tenant,
             'current' => 'fila',

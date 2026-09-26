@@ -18,6 +18,8 @@ use Sinergia\Application\Destination\ManageDestinations;
 use Sinergia\Application\Port\Affiliate\AffiliateLinkProvider;
 use Sinergia\Application\Niche\SaveNicheSelection;
 use Sinergia\Application\Offer\OfferChooser;
+use Sinergia\Application\Onboarding\ActivateBot;
+use Sinergia\Application\Onboarding\SearchOffers;
 use Sinergia\Application\Queue\BotWorker;
 use Sinergia\Application\Queue\ManageQueue;
 use Sinergia\Application\Queue\MessageBuilder;
@@ -44,6 +46,7 @@ use Sinergia\Infrastructure\Persistence\LoginAttemptRepository;
 use Sinergia\Infrastructure\Persistence\MediaDeclarationRepository;
 use Sinergia\Infrastructure\Persistence\MlConnectionStatusRepository;
 use Sinergia\Infrastructure\Persistence\NicheCatalogRepository;
+use Sinergia\Infrastructure\Persistence\OnboardingRepository;
 use Sinergia\Infrastructure\Persistence\OfferSelectionRepository;
 use Sinergia\Infrastructure\Persistence\PublicCatalogCacheRepository;
 use Sinergia\Infrastructure\Persistence\SessionRepository;
@@ -287,6 +290,18 @@ final class Kernel
                 $c->get(DispatchQueueRepository::class),
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
+            )),
+            // Onboarding (F1, etapa 9): passos derivados dos dados da conta; ativação só com checklist completo.
+            OnboardingRepository::class => factory(static fn (ContainerInterface $c) => new OnboardingRepository($c->get(\PDO::class), $c->get(Config::class)->siteId())),
+            ActivateBot::class => factory(static fn (ContainerInterface $c) => new ActivateBot(
+                $c->get(OnboardingRepository::class),
+                $c->get(Clock::class),
+                $c->get(LoggerInterface::class),
+            )),
+            SearchOffers::class => factory(static fn (ContainerInterface $c) => new SearchOffers(
+                $c->get(OnboardingRepository::class),
+                $c->get(SelectOffers::class),
+                $c->get(Clock::class),
             )),
             // Conclusão do OAuth, compartilhada pelo callback web e pelo ml:oauth:finish.
             CompleteMercadoLivreAuthorization::class => factory(static fn (ContainerInterface $c) => new CompleteMercadoLivreAuthorization(

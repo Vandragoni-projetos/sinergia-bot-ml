@@ -10,6 +10,10 @@
         <span class="brand-name">SINERGIA BOT ML</span>
     </div>
     <nav aria-label="Áreas do painel">
+        <a href="/comecar" class="nav-item{% if current == 'comecar' %} active{% endif %}"{% if current == 'comecar' %} aria-current="page"{% endif %}>
+            <span class="nav-step">★</span>
+            <span>Primeiros passos</span>
+        </a>
         {% for slug, item in nav %}
             <a href="/{{ slug }}" class="nav-item{% if slug == current %} active{% endif %}"{% if slug == current %} aria-current="page"{% endif %}>
                 <span class="nav-step">{{ loop.index }}</span>
@@ -32,6 +36,17 @@
     </header>
 
     <main class="content">
+        {% if onboarding is defined and current != 'comecar' and not onboarding.facts.botActive %}
+            {% set next_step = onboarding.firstPending() %}
+            <p class="notice next-step" role="status">
+                {% if next_step %}
+                    Configuração: {{ onboarding.doneCount() }} de {{ onboarding.steps|length }} passos. Próximo: <strong>{{ next_step.title }}</strong> — {{ next_step.todo }}
+                    <a href="{{ next_step.url }}">{{ next_step.action }}</a>
+                {% else %}
+                    Tudo pronto. <a href="/comecar">Ativar Sinergia Bot</a>
+                {% endif %}
+            </p>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 </div>

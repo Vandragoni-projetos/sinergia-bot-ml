@@ -1,0 +1,67 @@
+{% extends 'panel/layout.twig' %}
+
+{% block content %}
+<h1>{{ page.title }}</h1>
+<p class="muted">{{ page.lead }}</p>
+
+{% if pending_message %}<p class="alert" role="alert">{{ pending_message }}</p>{% endif %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+{% set facts = checklist.facts %}
+{% if facts.botActive %}
+    <p class="notice success" role="status">● Bot trabalhando. Acompanhe as publicações na <a href="/fila">Fila</a>.</p>
+{% else %}
+    <p class="muted">{{ checklist.doneCount() }} de {{ checklist.steps|length }} passos concluídos.</p>
+{% endif %}
+
+<ol class="steps">
+{% set next = checklist.firstPending() %}
+{% for step in checklist.steps %}
+    <li class="step{{ step.done ? ' done' : '' }}{{ next and next.key == step.key ? ' current' : '' }}">
+        <div class="step-head">
+            <span class="step-mark" aria-hidden="true">{{ step.done ? '✓' : loop.index }}</span>
+            <span class="step-title">{{ step.title }}</span>
+            <span class="pill{{ step.done ? ' ok' : '' }}">{{ step.done ? 'Concluído' : 'Pendente' }}</span>
+        </div>
+        <p class="muted small">{{ step.status }}</p>
+        {% if not step.done %}
+            <p>{{ step.todo }}</p>
+            {% if step.key == 'links' and facts.candidates == 0 %}
+                <form method="post" action="/comecar/ofertas" id="ofertas" class="actions">
+                    <input type="hidden" name="_csrf" value="{{ csrf }}">
+                    <button type="submit" class="primary-inline">Buscar ofertas</button>
+                </form>
+            {% else %}
+                <p class="actions"><a class="button{{ next and next.key == step.key ? ' primary-inline' : '' }}" href="{{ step.url }}">{{ step.action }}</a></p>
+            {% endif %}
+        {% endif %}
+    </li>
+{% endfor %}
+</ol>
+
+{% if found is not null %}
+    <p class="notice" role="status">{{ found > 0 ? found ~ ' oferta(s) encontrada(s). Agora prepare os links.' : 'Nenhuma oferta encontrada agora. Tente mais subnichos ou busque de novo mais tarde.' }}</p>
+{% endif %}
+{% if facts.candidates > 0 and not facts.botActive %}
+    <form method="post" action="/comecar/ofertas" id="ofertas" class="actions">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button type="submit">Buscar ofertas de novo</button>
+    </form>
+{% endif %}
+
+<section class="card activation" aria-labelledby="activate-title">
+    <h2 id="activate-title">Ativação</h2>
+    {% if facts.botActive %}
+        <p>O Sinergia Bot já está ativo.</p>
+    {% elseif checklist.canActivate() %}
+        <p>Tudo pronto. Ao ativar, o bot começa a planejar e publicar as ofertas nos seus destinos, respeitando horários e intervalos.</p>
+        <form method="post" action="/comecar/ativar">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <button type="submit" class="primary-inline">Ativar Sinergia Bot</button>
+        </form>
+    {% else %}
+        <p class="muted">Conclua os passos acima para liberar a ativação. Próximo passo: <strong>{{ next.title }}</strong>.</p>
+        <button type="button" disabled>Ativar Sinergia Bot</button>
+    {% endif %}
+</section>
+{% endblock %}

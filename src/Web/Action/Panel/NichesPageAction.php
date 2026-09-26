@@ -8,6 +8,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\Onboarding\ActivateBot;
 use Sinergia\Application\Niche\NicheFilters;
 use Sinergia\Infrastructure\Persistence\AccountNicheRepository;
 use Sinergia\Infrastructure\Persistence\NicheCatalogRepository;
@@ -92,6 +93,7 @@ final class NichesPageAction
         }
 
         return $this->container->get(Views::class)->render($response, 'panel/niches.twig', [
+            'onboarding' => $this->container->get(ActivateBot::class)->checklist($tenant),
             'tenant' => $tenant,
             'current' => 'nichos',
             'nav' => PanelPageAction::PAGES,

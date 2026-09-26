@@ -51,6 +51,6 @@ final class LoginSubmitAction
         $response = $cookies->set($response, PanelCookies::SESSION, $result->sessionToken->reveal(), PanelCookies::SESSION_MAX_AGE);
         $response = $cookies->clear($response, PanelCookies::PRE_LOGIN);
 
-        return $response->withStatus(302)->withHeader('Location', '/fila');
+        return $response->withStatus(302)->withHeader('Location', '/');
     }
 }

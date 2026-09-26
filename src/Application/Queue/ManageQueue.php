@@ -10,7 +10,7 @@ use Sinergia\Application\Port\Queue\QueueDecisions;
 use Sinergia\Application\Port\Queue\QueueStore;
 use Sinergia\Shared\Clock\Clock;
 
-/** Ações do cliente na Fila, sempre na conta do TenantContext: Aprovar, Pular, Pausar/Ativar bot. */
+/** Ações do cliente na Fila, sempre na conta do TenantContext: Aprovar, Pular, Pausar bot. */
 final class ManageQueue
 {
     public function __construct(
@@ -33,10 +33,11 @@ final class ManageQueue
         $this->decide($tenant, $key, 'skip');
     }
 
-    public function setBot(TenantContext $tenant, bool $active): void
+    /** Pausar é sempre permitido. Ativar só pelo ActivateBot (checklist completo). */
+    public function pause(TenantContext $tenant): void
     {
-        $this->store->setBotStatus($tenant->installationId, $active, $tenant->userId, $this->clock->now());
-        $this->logger->info('queue.bot_' . ($active ? 'activated' : 'paused'), ['installation_id' => $tenant->installationId->value, 'user_id' => $tenant->userId]);
+        $this->store->setBotStatus($tenant->installationId, false, $tenant->userId, $this->clock->now());
+        $this->logger->info('queue.bot_paused', ['installation_id' => $tenant->installationId->value, 'user_id' => $tenant->userId]);
     }
 
     /** @throws QueueRejected */

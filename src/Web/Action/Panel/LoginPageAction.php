@@ -22,7 +22,7 @@ final class LoginPageAction
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($this->container->get(AuthService::class)->resolve(PanelCookies::read($request, PanelCookies::SESSION)) !== null) {
-            return $response->withStatus(302)->withHeader('Location', '/fila');
+            return $response->withStatus(302)->withHeader('Location', '/');
         }
 
         return self::renderForm($this->container, $request, $response, null, '', 200);

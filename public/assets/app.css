@@ -189,3 +189,19 @@ textarea.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 ol.batch-items { margin: .5rem 0 0; padding-left: 1.25rem; }
 h4 { font-size: .95rem; margin: 1rem 0 .25rem; }
+
+/* Primeiros passos (etapa 9) */
+ol.steps { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: .75rem; }
+.step { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.25rem; }
+.step.current { border-color: var(--accent); }
+.step-head { display: flex; align-items: center; gap: .75rem; }
+.step-title { font-weight: 600; flex: 1; }
+.step-mark { width: 1.8rem; height: 1.8rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); font-size: .85rem; }
+.step.done .step-mark { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
+.step p { margin-top: .4rem; }
+a.button { display: inline-block; text-decoration: none; border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem 1rem; color: var(--text); background: var(--surface); }
+a.button.primary-inline { background: var(--accent); border-color: var(--accent); color: #fff; }
+.activation { margin-top: 1.5rem; }
+.activation button { margin-top: .75rem; }
+.next-step { margin-bottom: 1.25rem; }
+button:disabled { opacity: .5; cursor: not-allowed; }

@@ -8,12 +8,14 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Sinergia\Application\Auth\TenantContext;
+use Sinergia\Application\Onboarding\ActivateBot;
+use Sinergia\Application\Onboarding\ActivationBlocked;
 use Sinergia\Application\Queue\ManageQueue;
 use Sinergia\Application\Queue\QueueRejected;
 use Sinergia\Web\Middleware\RequireAuthMiddleware;
 use Sinergia\Web\Security\Csrf;
 
-/** POST da Fila: Aprovar / Pular (chave aleatória do item, só na própria conta) e Pausar / Ativar bot. */
+/** POST da Fila: Aprovar / Pular (chave aleatória do item, só na própria conta), Pausar bot e Ativar bot (com checklist). */
 final class QueueAction
 {
     public const string APPROVE = 'approve';
@@ -41,11 +43,14 @@ final class QueueAction
             $ok = match ($this->operation) {
                 self::APPROVE => (function () use ($manager, $tenant, $key): string { $manager->approve($tenant, $key); return 'aprovado'; })(),
                 self::SKIP => (function () use ($manager, $tenant, $key): string { $manager->skip($tenant, $key); return 'pulado'; })(),
-                self::PAUSE => (function () use ($manager, $tenant): string { $manager->setBot($tenant, false); return 'bot_pausado'; })(),
-                default => (function () use ($manager, $tenant): string { $manager->setBot($tenant, true); return 'bot_ativado'; })(),
+                self::PAUSE => (function () use ($manager, $tenant): string { $manager->pause($tenant); return 'bot_pausado'; })(),
+                default => (function () use ($tenant): string { $this->container->get(ActivateBot::class)->activate($tenant); return 'bot_ativado'; })(),
             };
         } catch (QueueRejected $e) {
             return $response->withStatus(302)->withHeader('Location', '/fila?erro=' . $e->reason);
+        } catch (ActivationBlocked $e) {
+            // Ativar exige o checklist completo: leva o cliente ao passo pendente.
+            return $response->withStatus(302)->withHeader('Location', '/comecar?pendente=' . $e->pendingStep);
         }
 
         return $response->withStatus(302)->withHeader('Location', '/fila?ok=' . $ok);

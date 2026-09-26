@@ -22,7 +22,7 @@
     <header class="card-head">
         <span class="niche-title">
             <h2 id="bot-title">{% if queue.bot_active %}● Bot trabalhando{% else %}Bot pausado{% endif %}</h2>
-            <span class="muted small">{% if queue.last_beat %}Último sinal do worker: {{ queue.last_beat|date('d/m/Y H:i', tz) }}{% else %}Worker ainda sem sinal{% endif %}</span>
+            <span class="muted small">{% if queue.last_beat %}Última verificação do bot: {{ queue.last_beat|date('d/m/Y H:i', tz) }}{% else %}O bot ainda não fez a primeira verificação{% endif %}</span>
         </span>
         <form method="post" action="/fila/bot/{{ queue.bot_active ? 'pausar' : 'ativar' }}">
             <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -96,7 +96,7 @@
     </header>
 
     {% if awaiting is empty and not batch %}
-        <p class="muted">Nenhum produto aguardando link de afiliado.</p>
+        <p class="muted">Nenhum produto aguardando link. As ofertas aparecem aqui depois da busca em <a href="/comecar">Primeiros passos</a> ou quando o bot estiver trabalhando.</p>
     {% elseif not batch %}
         <ul class="available">
             {% for product in awaiting|slice(0, 50) %}<li><span>{{ product.name }}</span></li>{% endfor %}
