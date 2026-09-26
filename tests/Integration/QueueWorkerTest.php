@@ -30,6 +30,7 @@ use Sinergia\Shared\Clock\FrozenClock;
 use Sinergia\Shared\Config\Config;
 use Sinergia\Shared\Config\SensitiveValue;
 use Sinergia\Shared\Logging\LoggerFactory;
+use Sinergia\Tests\Support\FakeOpenAIServer;
 use Sinergia\Tests\Support\FakeUazapiServer;
 use Sinergia\Tests\Support\RoutedMercadoLivreHttp;
 
@@ -47,6 +48,7 @@ final class QueueWorkerTest extends DatabaseTestCase
     private FrozenClock $clock;
     private RoutedMercadoLivreHttp $ml;
     private FakeUazapiServer $uazapi;
+    private FakeOpenAIServer $openai;
     private TestHandler $logs;
     private Container $container;
     private Installation $a;
@@ -73,6 +75,7 @@ final class QueueWorkerTest extends DatabaseTestCase
         $this->clock = new FrozenClock(self::NOW);
         $this->ml = new RoutedMercadoLivreHttp();
         $this->uazapi = new FakeUazapiServer();
+        $this->openai = new FakeOpenAIServer();
         $this->logs = new TestHandler();
         $this->container = $this->build();
 
@@ -132,6 +135,60 @@ final class QueueWorkerTest extends DatabaseTestCase
         self::assertCount(2, $this->uazapi->sent);
         self::assertStringEndsWith('https://meli.la/CCCC333', json_decode($this->uazapi->sent[1]['body'], true)['text']);
         self::assertSame([['3', '3']], $this->rows('SELECT COUNT(*), COUNT(DISTINCT ml_product_id) FROM dispatch_queue'));
+    }
+
+    public function testAiCopyV2IsSentWithBotDataAndAnyAiFailureFallsBackToV1(): void
+    {
+        $this->container = $this->build(['AI_COPY_PROVIDER' => 'openai', 'OPENAI_API_KEY' => FakeOpenAIServer::API_KEY]);
+        $dest = $this->autoDestination($this->a, 'Ofertas Casa', ['air-fryers', 'panelas'], interval: 60);
+        $this->candidates($this->a, [['MLB200001', 'air-fryers'], ['MLB200003', 'panelas']]);
+        $this->link($this->a, 'MLB200001', 'https://meli.la/AAAA111');
+        $this->link($this->a, 'MLB200003', 'https://meli.la/CCCC333');
+        $this->openai->copy('Batata crocante sem óleo 🍟', 'Toque no link e confira 👇');
+
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        // v2: copy validada + título, preços, desconto e link exatamente do BotML.
+        self::assertCount(1, $this->uazapi->sent);
+        self::assertSame(
+            "Batata crocante sem óleo 🍟\n\nAir Fryer 4L\n\nDe R$ 249,90 por R$ 199,90 (20% OFF)\n\nToque no link e confira 👇\n\nhttps://meli.la/AAAA111",
+            json_decode($this->uazapi->sent[0]['body'], true)['text'],
+        );
+        // A IA recebeu só título, nicho/subnicho e fatos booleanos; nada de preço, desconto ou link.
+        $aiBody = (string) json_encode($this->openai->lastBody(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringContainsString('Air Fryer 4L', $aiBody);
+        foreach (['199', '249', '20%', 'meli.la', 'AAAA111', '120363000000000101'] as $forbidden) {
+            self::assertStringNotContainsString($forbidden, $aiBody, $forbidden);
+        }
+        $user = (string) $this->openai->lastBody()['messages'][1]['content'];
+        self::assertMatchesRegularExpression('/"nicho":"[^"]+","subnicho":"[^"]+"/u', $user);
+        $json = json_decode((string) $this->rows("SELECT message_json FROM dispatch_queue WHERE ml_product_id = 'MLB200001'")[0][0], true);
+        self::assertSame('v2', $json['format']);
+        self::assertSame(['provider' => 'openai', 'model' => 'gpt-4.1-mini', 'prompt_version' => 'copy-v1', 'fallback' => false], $json['copy']);
+        self::assertSame('https://meli.la/AAAA111', $json['affiliate_url']);
+        self::assertSame(19990, $json['price']);
+
+        // OpenAI fora do ar no próximo envio: publica mesmo assim, com a v1, e marca o fallback.
+        $this->openai->fail('timeout');
+        $this->clock->advance('PT1H');
+        $this->worker()->runOnce('w1', $this->clock->now());
+
+        self::assertCount(2, $this->uazapi->sent);
+        self::assertSame("Panela Pressão\n\nDe R$ 249,90 por R$ 199,90 (20% OFF)\n\nhttps://meli.la/CCCC333", json_decode($this->uazapi->sent[1]['body'], true)['text']);
+        $json = json_decode((string) $this->rows("SELECT message_json FROM dispatch_queue WHERE ml_product_id = 'MLB200003'")[0][0], true);
+        self::assertSame('v1', $json['format']);
+        self::assertTrue($json['copy']['fallback']);
+        self::assertSame([['sent', '2']], $this->rows('SELECT status, COUNT(*) FROM dispatch_queue WHERE destination_id = ? GROUP BY status', [$dest]));
+
+        // Nada sensível em message_json nem nos logs: chave, prompt ou resposta da IA.
+        $stored = (string) json_encode($this->rows('SELECT message_json FROM dispatch_queue'));
+        $logged = (string) json_encode(array_map(static fn ($r): array => [$r->message, $r->context], $this->logs->getRecords()), JSON_UNESCAPED_UNICODE);
+        foreach ([FakeOpenAIServer::API_KEY, 'Dados do produto', 'Você escreve', 'Toque no link', 'Batata crocante'] as $secret) {
+            self::assertStringNotContainsString($secret, $logged, $secret);
+        }
+        self::assertStringNotContainsString(FakeOpenAIServer::API_KEY, $stored);
+        self::assertStringNotContainsString('Você escreve', $stored);
+        self::assertTrue($this->logs->hasWarningThatContains('offer_copy.fallback_v1'));
     }
 
     public function testCadenceIsEnforcedAtSendTimeAndWindowOutsideIsRescheduled(): void
@@ -525,7 +582,8 @@ final class QueueWorkerTest extends DatabaseTestCase
         self::assertNotNull($destB);
     }
 
-    private function build(): Container
+    /** @param array<string, string> $extra variáveis adicionais (ex.: IA da copy) */
+    private function build(array $extra = []): Container
     {
         $env = array_filter(array_merge($_ENV, getenv()), 'is_string');
         $container = Kernel::container(Config::fromArray([
@@ -541,11 +599,12 @@ final class QueueWorkerTest extends DatabaseTestCase
             'ML_REDIRECT_URI' => 'https://app.example.test/oauth/mercadolivre/callback',
             'UAZAPI_BASE_URL' => FakeUazapiServer::BASE_URL,
             'UAZAPI_ADMIN_TOKEN' => FakeUazapiServer::ADMIN_TOKEN,
-        ]), dirname(__DIR__, 2));
+        ] + $extra), dirname(__DIR__, 2));
         self::assertInstanceOf(Container::class, $container);
         $container->set(Clock::class, $this->clock);
         $container->set('ml.http', $this->ml->client());
         $container->set('whatsapp.http', $this->uazapi->client());
+        $container->set('openai.http', $this->openai->client());
         $container->set(LoggerInterface::class, LoggerFactory::create('local', $this->logs));
 
         return $container;

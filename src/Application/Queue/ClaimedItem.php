@@ -35,6 +35,9 @@ final readonly class ClaimedItem
         public ?string $productName,
         public ?string $productPicture,
         public NicheFilters $filters,
+        /** Nomes do catálogo global de nichos (só para a copy por IA; nenhum dado da conta). */
+        public ?string $nicheName = null,
+        public ?string $subnicheName = null,
     ) {
     }
 }

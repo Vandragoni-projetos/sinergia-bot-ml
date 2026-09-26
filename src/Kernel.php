@@ -23,7 +23,10 @@ use Sinergia\Application\Onboarding\ActivateBot;
 use Sinergia\Application\Onboarding\SearchOffers;
 use Sinergia\Application\Queue\BotWorker;
 use Sinergia\Application\Queue\ManageQueue;
+use Sinergia\Application\Port\Copy\OfferCopyGenerator;
+use Sinergia\Application\Queue\CopyValidator;
 use Sinergia\Application\Queue\MessageBuilder;
+use Sinergia\Application\Queue\OfferMessageComposer;
 use Sinergia\Application\Queue\QueuePlanner;
 use Sinergia\Application\Queue\QueueSender;
 use Sinergia\Application\Offer\SelectOffers;
@@ -62,11 +65,14 @@ use Sinergia\Integration\MercadoLivre\Http\MercadoLivreClient;
 use Sinergia\Integration\MercadoLivre\OAuth\OAuthClient;
 use Sinergia\Integration\MercadoLivre\OAuth\StoredTokenProvider;
 use Sinergia\Integration\MercadoLivre\Product\MercadoLivreCatalogSourceFactory;
+use Sinergia\Integration\AI\FixedOfferCopyGenerator;
+use Sinergia\Integration\AI\OpenAI\OpenAIOfferCopyGenerator;
 use Sinergia\Integration\WhatsApp\Evolution\EvolutionProvider;
 use Sinergia\Integration\WhatsApp\Uazapi\UazapiProvider;
 use Sinergia\Shared\Clock\Clock;
 use Sinergia\Shared\Clock\SystemClock;
 use Sinergia\Shared\Config\Config;
+use Sinergia\Shared\Config\ConfigException;
 use Sinergia\Shared\Logging\LoggerFactory;
 use Sinergia\Web\Security\Csrf;
 use Sinergia\Web\Security\PanelCookies;
@@ -285,13 +291,52 @@ final class Kernel
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),
             )),
+            // Copy por IA (etapa 11B): só o texto criativo; configuração inválida ou ausente → sem IA (mensagem v1).
+            'openai.http' => factory(static function (Config $c) {
+                try {
+                    $timeout = $c->openAi()->timeoutSeconds;
+                } catch (ConfigException) {
+                    $timeout = 10;
+                }
+
+                return new GuzzleClient([
+                    'timeout' => $timeout,
+                    'connect_timeout' => min(5, $timeout),
+                    'http_errors' => false,
+                    'allow_redirects' => false,
+                ]);
+            }),
+            OfferCopyGenerator::class => factory(static function (ContainerInterface $c): OfferCopyGenerator {
+                $config = $c->get(Config::class);
+                try {
+                    if ($config->aiCopyProvider() === Config::AI_COPY_OPENAI) {
+                        return new OpenAIOfferCopyGenerator(
+                            $c->get('openai.http'),
+                            $c->get(HttpFactory::class),
+                            $c->get(HttpFactory::class),
+                            $config->openAi(),
+                        );
+                    }
+                } catch (ConfigException $e) {
+                    // A mensagem cita só o nome da variável (nunca o valor).
+                    $c->get(LoggerInterface::class)->warning('offer_copy.config_invalid', ['error' => $e->getMessage()]);
+                }
+
+                return new FixedOfferCopyGenerator();
+            }),
+            OfferMessageComposer::class => factory(static fn (ContainerInterface $c) => new OfferMessageComposer(
+                $c->get(OfferCopyGenerator::class),
+                new CopyValidator(),
+                new MessageBuilder(),
+                $c->get(LoggerInterface::class),
+            )),
             QueueSender::class => factory(static fn (ContainerInterface $c) => new QueueSender(
                 $c->get(DispatchQueueRepository::class),
                 $c->get(WhatsAppConnectionRepository::class),
                 static fn (): WhatsAppProvider => $c->get(WhatsAppProvider::class),
                 $c->get(MercadoLivreCatalogSourceFactory::class),
                 new OfferChooser(),
-                new MessageBuilder(),
+                $c->get(OfferMessageComposer::class),
                 $c->get(ManageDestinations::class),
                 $c->get(Clock::class),
                 $c->get(LoggerInterface::class),

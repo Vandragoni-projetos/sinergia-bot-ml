@@ -249,6 +249,45 @@ final class Config
         );
     }
 
+    public const string AI_COPY_NONE = 'none';
+    public const string AI_COPY_OPENAI = 'openai';
+    public const string OPENAI_DEFAULT_MODEL = 'gpt-4.1-mini';
+    private const string OPENAI_BASE_URL = 'https://api.openai.com/v1';
+
+    /** Copy das ofertas por IA: 'none' (padrão, mensagem fixa v1) ou 'openai'. */
+    public function aiCopyProvider(): string
+    {
+        $provider = $this->optionalString('AI_COPY_PROVIDER') ?? self::AI_COPY_NONE;
+        if (!in_array($provider, [self::AI_COPY_NONE, self::AI_COPY_OPENAI], true)) {
+            throw ConfigException::invalid('AI_COPY_PROVIDER', 'none|openai');
+        }
+
+        return $provider;
+    }
+
+    /**
+     * OpenAI (só a copy criativa). OPENAI_API_KEY pode faltar (a oferta sai na v1); OPENAI_MODEL tem padrão;
+     * OPENAI_TIMEOUT_SECONDS é curto de propósito (1–30, padrão 10) porque a chamada acontece dentro do envio.
+     */
+    public function openAi(): OpenAIConfig
+    {
+        $model = $this->optionalString('OPENAI_MODEL') ?? self::OPENAI_DEFAULT_MODEL;
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/D', $model) !== 1) {
+            throw ConfigException::invalid('OPENAI_MODEL', 'nome de modelo, ex.: ' . self::OPENAI_DEFAULT_MODEL);
+        }
+        $key = $this->optionalString('OPENAI_API_KEY');
+        if ($key !== null && preg_match('/\s/', $key) === 1) {
+            throw ConfigException::invalid('OPENAI_API_KEY', 'chave sem espaços');
+        }
+
+        return new OpenAIConfig(
+            baseUrl: self::OPENAI_BASE_URL,
+            apiKey: $key === null ? null : new SensitiveValue($key),
+            model: $model,
+            timeoutSeconds: $this->int('OPENAI_TIMEOUT_SECONDS', 10, 1, 30),
+        );
+    }
+
     public function siteId(): string
     {
         $site = $this->optionalString('ML_SITE_ID') ?? 'MLB';

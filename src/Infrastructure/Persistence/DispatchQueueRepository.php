@@ -213,9 +213,12 @@ final class DispatchQueueRepository implements QueueStore, QueueDecisions
                     TIME_FORMAT(d.window_start, \'%H:%i\') AS ws, TIME_FORMAT(d.window_end, \'%H:%i\') AS we, d.interval_minutes, d.last_sent_at,
                     l.id AS link_id, l.affiliate_url,
                     p.name AS product_name, p.picture_url,
-                    an.min_discount_pct, an.min_price, an.max_price, an.require_photo
+                    an.min_discount_pct, an.min_price, an.max_price, an.require_photo,
+                    n.name AS niche_name, s.name AS subniche_name
              FROM dispatch_queue q
              JOIN installations i ON i.id = q.installation_id
+             LEFT JOIN niches n ON n.id = q.niche_id
+             LEFT JOIN subniches s ON s.niche_id = q.niche_id AND s.id = q.subniche_id
              LEFT JOIN destinations d ON d.installation_id = q.installation_id AND d.id = q.destination_id
              LEFT JOIN affiliate_links l ON l.installation_id = q.installation_id AND l.active_product_id = q.ml_product_id
              LEFT JOIN ml_products p ON p.ml_product_id = q.ml_product_id
@@ -248,6 +251,7 @@ final class DispatchQueueRepository implements QueueStore, QueueDecisions
             $r['link_id'] === null ? null : (int) $r['link_id'], $r['affiliate_url'] === null ? null : (string) $r['affiliate_url'],
             $r['product_name'] === null ? null : (string) $r['product_name'], $r['picture_url'] === null ? null : (string) $r['picture_url'],
             $filters,
+            $r['niche_name'] === null ? null : (string) $r['niche_name'], $r['subniche_name'] === null ? null : (string) $r['subniche_name'],
         );
     }
 

@@ -7,6 +7,7 @@ namespace Sinergia\Application\Queue;
 use Psr\Log\LoggerInterface;
 use Sinergia\Application\Destination\ManageDestinations;
 use Sinergia\Application\Offer\OfferChooser;
+use Sinergia\Application\Port\Copy\OfferCopyRequest;
 use Sinergia\Application\Port\MercadoLivre\MercadoLivreFailure;
 use Sinergia\Application\Port\Offer\CatalogSourceFactory;
 use Sinergia\Application\Port\Queue\QueueStore;
@@ -23,7 +24,8 @@ use Sinergia\Shared\Clock\Clock;
  * 2. Revalida na hora: bot da conta ativo · destino existe, ativo (elegível e não pausado) · modo manual exige aprovação ·
  *    janela · cadência · link ATIVO da conta para o produto (usa o atual, se o anterior foi substituído) ·
  *    WhatsApp conectado · produto e preço ATUAIS no ML (token da conta) · filtros do nicho · foto.
- * 3. Mensagem fixa com o preço atual; link exatamente como gravado.
+ * 3. Mensagem com o preço atual e o link exatamente como gravado: v2 (texto criativo da IA, validado) ou, sem IA ou
+ *    em QUALQUER falha dela, a v1 fixa. A copy é gerada ANTES de marcar o envio iniciado e nunca bloqueia o envio.
  * 4. Marca "envio iniciado" ANTES de chamar o provedor. Retry só quando o provedor comprovadamente NÃO processou
  *    (429, 503, 401/403); timeout, rede, resposta inválida e demais 5xx = resultado incerto → 'failed', sem reenvio.
  */
@@ -42,7 +44,7 @@ final class QueueSender
         private readonly \Closure $provider,
         private readonly CatalogSourceFactory $catalog,
         private readonly OfferChooser $chooser,
-        private readonly MessageBuilder $messages,
+        private readonly OfferMessageComposer $messages,
         private readonly ManageDestinations $destinations,
         private readonly Clock $clock,
         private readonly LoggerInterface $logger,
@@ -160,15 +162,18 @@ final class QueueSender
             return 'skipped';
         }
 
-        // 6) Mensagem fixa com o preço atual e o link exatamente como gravado.
+        // 6) Mensagem com o preço atual e o link exatamente como gravado (v2 com copy validada, ou v1).
         if ($item->attempts >= self::MAX_ATTEMPTS) {
             $this->store->finish($installation, $id, $token, 'failed', 'max_attempts', $now);
 
             return 'failed';
         }
-        $caption = $this->messages->caption($product->name, $offer->priceCents, $offer->originalPriceCents, $item->currentLinkUrl);
+        // A IA recebe só título, nicho, subnicho e fatos booleanos confirmados — nunca preço, desconto ou link.
+        $composed = $this->messages->compose($installation, $id, new OfferCopyRequest($product->name, $item->nicheName, $item->subnicheName, $offer->freeShipping, $offer->officialStore), $offer->priceCents, $offer->originalPriceCents, $item->currentLinkUrl);
+        $caption = $composed->caption;
         $message = [
-            'format' => MessageBuilder::FORMAT_VERSION,
+            'format' => $composed->format,
+            'copy' => $composed->copy,
             'caption' => $caption,
             'image_url' => $product->pictureUrl,
             'affiliate_url' => $item->currentLinkUrl,
