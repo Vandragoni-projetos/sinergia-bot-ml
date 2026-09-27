@@ -317,7 +317,11 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
         $this->thirtyOneCandidates();
 
-        self::assertStringContainsString('Copiar URLs (30 produtos)', $this->page($ana));
+        $before = $this->page($ana);
+        self::assertStringContainsString('Copiar URLs (30 produtos)', $before);
+        // Atalho para o Gerador oficial (só navegação do usuário; o BotML nunca chama essa página).
+        self::assertStringContainsString('<a href="https://www.mercadolivre.com.br/afiliados/linkbuilder" target="_blank" rel="noopener noreferrer">', $before);
+        self::assertStringContainsString('não use “Copiar todos”', $before);
         $key = $this->export($ana);
 
         self::assertCount(30, explode("\n", $this->exportTextOf($key)));

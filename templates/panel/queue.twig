@@ -97,6 +97,7 @@
             </form>
         {% endif %}
     </header>
+    <p class="muted small">Os links são gerados no <a href="https://www.mercadolivre.com.br/afiliados/linkbuilder" target="_blank" rel="noopener noreferrer">Gerador de Links do Mercado Livre ↗</a> (entre com a sua conta de afiliado). Copie a caixa de resultado inteira (clique nela, Ctrl+A e Ctrl+C) — não use “Copiar todos”, que descarta as URLs recusadas e desalinha o lote.</p>
 
     {% if awaiting is empty and not batch %}
         <p class="muted">Nenhum produto aguardando link. As ofertas aparecem aqui depois da busca em <a href="/comecar">Primeiros passos</a> ou quando o bot estiver trabalhando.</p>
@@ -109,7 +110,7 @@
     {% if batch %}
         <section class="subcard">
             <h3>1. Copie as URLs ({{ batch.items|length }} produtos)</h3>
-            <p class="muted small">Selecione tudo, copie e cole no <strong>Gerador de Links</strong> do Portal do Afiliado do Mercado Livre. As URLs não foram alteradas.</p>
+            <p class="muted small">Selecione tudo, copie e cole no <a href="https://www.mercadolivre.com.br/afiliados/linkbuilder" target="_blank" rel="noopener noreferrer"><strong>Gerador de Links</strong> do Mercado Livre ↗</a>. As URLs não foram alteradas.</p>
             <label for="export-urls" class="sr-only">URLs dos produtos</label>
             <textarea id="export-urls" class="mono" rows="{{ min(batch.items|length, 12) }}" readonly>{{ batch.exportText() }}</textarea>
         </section>
