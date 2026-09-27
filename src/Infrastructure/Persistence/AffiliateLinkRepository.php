@@ -48,11 +48,14 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                  AND lc.run_id = (SELECT MAX(c2.run_id) FROM account_offer_candidates c2 WHERE c2.installation_id = :inst6 AND c2.ml_product_id = x.ml_product_id)
              LEFT JOIN affiliate_links l ON l.installation_id = :inst4 AND l.active_product_id = x.ml_product_id
              WHERE l.id IS NULL
+               AND NOT EXISTS (SELECT 1 FROM affiliate_link_batch_items r
+                               WHERE r.installation_id = :inst7 AND r.ml_product_id = x.ml_product_id
+                                 AND r.match_status = \'rejected\' AND r.reason = \'affiliate_program_rejected\')
              GROUP BY x.ml_product_id, p.name
              ORDER BY sort_key, x.ml_product_id
              LIMIT ' . max(1, min($limit, 500))
         );
-        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value, 'inst3' => $installation->value, 'inst4' => $installation->value, 'inst5' => $installation->value, 'inst6' => $installation->value]);
+        $stmt->execute(['inst' => $installation->value, 'inst2' => $installation->value, 'inst3' => $installation->value, 'inst4' => $installation->value, 'inst5' => $installation->value, 'inst6' => $installation->value, 'inst7' => $installation->value]);
 
         return array_values(array_map(
             static fn (array $r): ProductToLink => new ProductToLink((string) $r['ml_product_id'], $r['offer_item_id'] === null ? null : (string) $r['offer_item_id'], (string) $r['name']),
@@ -205,10 +208,10 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
         });
     }
 
-    public function confirm(InstallationId $installation, int $batchId, array $associations, int $userId, \DateTimeImmutable $now): ImportReport
+    public function confirm(InstallationId $installation, int $batchId, array $associations, int $userId, \DateTimeImmutable $now, array $rejectedItemIds = []): ImportReport
     {
-        $created = $replaced = $reused = 0;
-        $this->transaction(function () use ($installation, $batchId, $associations, $userId, $now, &$created, &$replaced, &$reused): void {
+        $created = $replaced = $reused = $rejected = 0;
+        $this->transaction(function () use ($installation, $batchId, $associations, $userId, $now, $rejectedItemIds, &$created, &$replaced, &$reused, &$rejected): void {
             $scope = ['inst' => $installation->value, 'batch' => $batchId];
             $batch = $this->pdo->prepare('SELECT pasted_at FROM affiliate_link_batches WHERE installation_id = :inst AND id = :batch FOR UPDATE');
             $batch->execute($scope);
@@ -262,25 +265,35 @@ final class AffiliateLinkRepository implements AffiliateLinkStore
                      WHERE installation_id = :inst AND batch_id = :batch AND id = :id'
                 )->execute($scope + ['raw' => $raw, 'no' => $association['line_no'], 'evidence' => $association['evidence'], 'at' => self::ts($now), 'link' => $linkId, 'id' => $itemRow['id']]);
             }
-            // Itens não escolhidos continuam aguardando link (a proposta não confirmada é descartada).
+            // Recusados pelo Programa na posição deles: saem dos próximos lotes (affiliate_program_rejected).
+            $reject = $this->pdo->prepare(
+                'UPDATE affiliate_link_batch_items SET match_status = \'rejected\', reason = \'affiliate_program_rejected\', confirmed_at = :at
+                 WHERE installation_id = :inst AND batch_id = :batch AND id = :id AND match_status <> \'confirmed\''
+            );
+            foreach (array_values(array_unique(array_map('intval', $rejectedItemIds))) as $itemId) {
+                $reject->execute($scope + ['at' => self::ts($now), 'id' => $itemId]);
+                $rejected += $reject->rowCount();
+            }
+            // Itens não escolhidos (e não recusados) continuam aguardando link (a proposta não confirmada é descartada).
             $this->pdo->prepare(
                 'UPDATE affiliate_link_batch_items SET match_status = \'unmatched\', received_raw = NULL, received_position = NULL, format_status = NULL, match_evidence = \'none\'
-                 WHERE installation_id = :inst AND batch_id = :batch AND match_status <> \'confirmed\''
+                 WHERE installation_id = :inst AND batch_id = :batch AND match_status NOT IN (\'confirmed\', \'rejected\')'
             )->execute($scope);
-            $counts = $this->pdo->prepare('SELECT COUNT(*) AS total, SUM(match_status = \'confirmed\') AS confirmed FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch');
+            $counts = $this->pdo->prepare('SELECT COUNT(*) AS total, SUM(match_status = \'confirmed\') AS confirmed, SUM(match_status = \'rejected\') AS rejected FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch');
             $counts->execute($scope);
             $c = $counts->fetch();
             $confirmed = (int) ($c['confirmed'] ?? 0);
+            $toLink = (int) $c['total'] - (int) ($c['rejected'] ?? 0);   // recusados não contam como pendentes
             $this->pdo->prepare(
                 'UPDATE affiliate_link_batches SET status = :status, confirmed_count = :confirmed, confirmed_at = :at, confirmed_by_user_id = :user
                  WHERE installation_id = :inst AND id = :batch'
-            )->execute($scope + ['status' => $confirmed === (int) $c['total'] ? 'confirmed' : 'partially_confirmed', 'confirmed' => $confirmed, 'at' => self::ts($now), 'user' => $userId]);
+            )->execute($scope + ['status' => $confirmed === $toLink ? 'confirmed' : 'partially_confirmed', 'confirmed' => $confirmed, 'at' => self::ts($now), 'user' => $userId]);
         });
 
-        $left = $this->pdo->prepare('SELECT COUNT(*) FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch AND match_status <> \'confirmed\'');
+        $left = $this->pdo->prepare('SELECT COUNT(*) FROM affiliate_link_batch_items WHERE installation_id = :inst AND batch_id = :batch AND match_status NOT IN (\'confirmed\', \'rejected\')');
         $left->execute(['inst' => $installation->value, 'batch' => $batchId]);
 
-        return new ImportReport($created, $replaced, $reused, (int) $left->fetchColumn());
+        return new ImportReport($created, $replaced, $reused, (int) $left->fetchColumn(), $rejected);
     }
 
     public function cancelBatch(InstallationId $installation, int $batchId): void

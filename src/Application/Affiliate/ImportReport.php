@@ -12,6 +12,8 @@ final readonly class ImportReport
         public int $replaced,
         public int $reused,
         public int $leftUnmatched,
+        /** Produtos da posição de uma recusa do Gerador: retirados dos próximos lotes (affiliate_program_rejected). */
+        public int $rejected = 0,
     ) {
     }
 }

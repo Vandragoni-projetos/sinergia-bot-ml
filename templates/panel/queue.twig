@@ -16,6 +16,9 @@
 {% if report %}
     <p class="notice" role="status">Novos: {{ report[0] }} · substituídos: {{ report[1] }} · já existentes: {{ report[2] }} · ainda aguardando link neste lote: {{ report[3] }}.</p>
 {% endif %}
+{% if rejectedAfterConfirm > 0 %}
+    <p class="notice" role="status">{{ rejectedAfterConfirm }} produto(s) não permitido(s) pelo Programa de Afiliados foram retirados dos próximos lotes.</p>
+{% endif %}
 {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
 
 <section class="card" aria-labelledby="bot-title">
@@ -132,6 +135,7 @@
             {% else %}
                 <p class="notice">Os links foram propostos pela ordem (link 1 → produto 1, link 2 → produto 2…). Confira antes de confirmar.</p>
             {% endif %}
+            <p class="muted small"><strong>{{ validCount }}</strong> link(s) válido(s){% if refusedCount > 0 %} · <strong>{{ refusedCount }}</strong> produto(s) recusado(s) pelo Mercado Livre (ficam fora dos próximos lotes ao confirmar){% endif %}</p>
             <form method="post" action="/fila/links/{{ batch.key }}/confirmar" class="bulk-select">
                 <input type="hidden" name="_csrf" value="{{ csrf }}">
                 <input type="hidden" name="com_selecao" value="1">
@@ -149,6 +153,7 @@
                             <td>
                                 {% if line.selectable %}
                                     <input type="checkbox" class="bulk-check" name="incluir[{{ line.no }}]" value="1" aria-label="Incluir linha {{ line.no }}"{% if line.checked %} checked{% endif %}>
+                                {% elseif line.refused %}—
                                 {% else %}
                                     <input type="checkbox" aria-label="Linha {{ line.no }} não pode ser incluída" disabled>
                                 {% endif %}
@@ -156,9 +161,11 @@
                             <td>{{ line.no }}</td>
                             <td class="mono">{{ line.text }}</td>
                             <td><span class="pill{{ line.valid ? ' ok' : ' bad' }}">{{ line.format }}</span></td>
-                            <td>{{ line.evidence }}</td>
+                            <td>{{ line.refused ? 'Recusado na posição' : line.evidence }}</td>
                             <td>
-                                {% if line.selectable %}
+                                {% if line.refused %}
+                                    <span class="muted">{% if line.refusedProduct %}{{ line.no }}. {{ line.refusedProduct }} — {% endif %}não permitido pelo Programa de Afiliados</span>
+                                {% elseif line.selectable %}
                                     <select name="associar[{{ line.no }}]" aria-label="Produto da linha {{ line.no }}">
                                         <option value="">Não associar</option>
                                         {% for item in batch.items %}

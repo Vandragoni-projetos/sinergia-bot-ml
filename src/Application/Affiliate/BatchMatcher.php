@@ -15,6 +15,10 @@ namespace Sinergia\Application\Affiliate;
  *    não traz ID → position_only (fraca).
  * 4. Proposta automática SÓ quando: quantidade de linhas = quantidade exportada, todas válidas, sem duplicidade e
  *    sem conflito. Qualquer anomalia → nada proposto; o cliente associa manualmente linha a linha.
+ * 5. Exceção: a linha de RECUSA do Gerador ("Este URL não é permitido pelo Programa.", ver ProgramRefusal) ocupa a
+ *    posição da URL recusada. Ela não é anomalia: fica sem proposta (o produto daquela posição é recusado) e as demais
+ *    linhas válidas continuam propostas pela MESMA posição — nada é deslocado. Se a quantidade de linhas for diferente
+ *    da exportada (recusas omitidas), continua anomalia e nada é proposto.
  */
 final class BatchMatcher
 {
@@ -66,7 +70,7 @@ final class BatchMatcher
                 ReceivedLine::EMPTY => BatchPreview::EMPTY_LINE,
                 ReceivedLine::DUPLICATE => BatchPreview::DUPLICATE,
                 ReceivedLine::INVALID_DOMAIN => BatchPreview::INVALID_DOMAIN,
-                ReceivedLine::INVALID => BatchPreview::INVALID_LINE,
+                ReceivedLine::INVALID => ProgramRefusal::matches($url) ? null : BatchPreview::INVALID_LINE,
                 default => $evidence === ReceivedLine::EVIDENCE_CONFLICT ? BatchPreview::ID_CONFLICT : null,
             };
             $parsed[] = [$lineNo, $raw, $url, $status, $detected, $evidence];
@@ -80,7 +84,7 @@ final class BatchMatcher
         foreach ($parsed as [$lineNo, $raw, $url, $status, $detected, $evidence]) {
             $lines[] = new ReceivedLine(
                 $lineNo, $raw, $url, $status, $detected, $evidence,
-                $anomalies === [] && isset($byPosition[$lineNo]) ? $lineNo : null,
+                $anomalies === [] && $status === ReceivedLine::VALID && isset($byPosition[$lineNo]) ? $lineNo : null,
             );
         }
 

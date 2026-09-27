@@ -103,6 +103,68 @@ final class BatchMatcherTest extends TestCase
         self::assertSame([ReceivedLine::EVIDENCE_PRODUCT_ID, ReceivedLine::EVIDENCE_POSITION], array_map(static fn (ReceivedLine $l) => $l->evidence, $mixed->lines));
     }
 
+    /** @return iterable<string, array{list<int>}> posições (1..30) recusadas pelo Gerador */
+    public static function refusals(): iterable
+    {
+        yield 'nenhuma recusa' => [[]];
+        yield 'recusa na primeira posição' => [[1]];
+        yield 'recusa no meio' => [[13]];
+        yield 'recusa na última posição' => [[30]];
+        yield 'três recusas espalhadas (27 + 3)' => [[8, 13, 28]];
+        yield 'recusas consecutivas' => [[10, 11, 12]];
+    }
+
+    /** @param list<int> $refused */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusals')]
+    public function testProgramRefusalKeepsEveryOtherLinkOnItsOwnPosition(array $refused): void
+    {
+        $lines = [];
+        foreach (range(1, 30) as $n) {
+            $lines[] = in_array($n, $refused, true) ? '⚠️ Este URL não é permitido pelo Programa.' : sprintf('https://meli.la/Pos%02dAb', $n);
+        }
+
+        $preview = $this->matcher()->preview($this->items(30), implode("\n", $lines));
+
+        self::assertSame([], $preview->anomalies, 'A recusa posicional não é anomalia.');
+        foreach ($preview->lines as $line) {
+            if (in_array($line->lineNo, $refused, true)) {
+                self::assertTrue($line->isProgramRefusal());
+                self::assertNull($line->proposedPosition, 'Recusa não recebe produto.');
+            } else {
+                self::assertFalse($line->isProgramRefusal());
+                // Link n → produto n: nenhum deslocamento depois de uma recusa.
+                self::assertSame($line->lineNo, $line->proposedPosition);
+                self::assertSame(sprintf('https://meli.la/Pos%02dAb', $line->lineNo), $line->url);
+            }
+        }
+        self::assertCount(30 - count($refused), array_filter($preview->lines, static fn (ReceivedLine $l): bool => $l->proposedPosition !== null));
+    }
+
+    public function testRefusalsOmittedFromThePasteNeverShiftLinks(): void
+    {
+        // "Copiar todos" do Gerador descarta as recusas: 27 linhas para 30 produtos → nada proposto.
+        $lines = array_map(static fn (int $n): string => sprintf('https://meli.la/Pos%02dAb', $n), array_values(array_diff(range(1, 30), [8, 13, 28])));
+
+        $preview = $this->matcher()->preview($this->items(30), implode("\n", $lines));
+
+        self::assertSame([BatchPreview::COUNT_MISMATCH], $preview->anomalies);
+        self::assertSame([], array_filter($preview->lines, static fn (ReceivedLine $l): bool => $l->proposedPosition !== null));
+    }
+
+    public function testOnlyTheExactRefusalTextIsAPlaceholderOtherGarbageStillBlocks(): void
+    {
+        foreach (['Este URL não é permitido pelo Programa.', '⚠ Este URL não é permitido pelo Programa', '  ⚠️ este url nao e permitido pelo programa.  '] as $variant) {
+            $preview = $this->matcher()->preview($this->items(2), self::REAL_1 . "\n" . $variant);
+            self::assertSame([], $preview->anomalies, $variant);
+            self::assertSame([1, null], array_map(static fn (ReceivedLine $l) => $l->proposedPosition, $preview->lines), $variant);
+        }
+        foreach (['Este URL é permitido', 'erro qualquer', 'Este URL não é permitido pelo Programa. https://meli.la/xyz1'] as $garbage) {
+            $preview = $this->matcher()->preview($this->items(2), self::REAL_1 . "\n" . $garbage);
+            self::assertSame([BatchPreview::INVALID_LINE], $preview->anomalies, $garbage);
+            self::assertSame([null, null], array_map(static fn (ReceivedLine $l) => $l->proposedPosition, $preview->lines), $garbage);
+        }
+    }
+
     private function matcher(): BatchMatcher
     {
         return new BatchMatcher([new MeliLaShortLinkFormat()]);

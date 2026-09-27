@@ -33,4 +33,10 @@ final readonly class ReceivedLine
     {
         return $this->formatStatus === self::VALID;
     }
+
+    /** Recusa do Gerador na posição da URL recusada (ver ProgramRefusal): marcador de posição, não link. */
+    public function isProgramRefusal(): bool
+    {
+        return $this->formatStatus === self::INVALID && ProgramRefusal::matches($this->raw);
+    }
 }

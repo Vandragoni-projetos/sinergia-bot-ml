@@ -41,11 +41,13 @@ interface AffiliateLinkStore
 
     /**
      * Grava as associações escolhidas numa transação: cria link ativo, reaproveita o idêntico ou substitui o anterior
-     * (que vira 'replaced'). Itens não escolhidos ficam 'unmatched'.
+     * (que vira 'replaced'). Itens não escolhidos ficam 'unmatched'; os de $rejectedItemIds (recusados pelo Programa na
+     * posição deles) ficam 'rejected' com motivo affiliate_program_rejected e saem dos próximos lotes.
      *
      * @param list<array{item_id: int, line_no: int, evidence: string}> $associations
+     * @param list<int> $rejectedItemIds
      */
-    public function confirm(InstallationId $installation, int $batchId, array $associations, int $userId, \DateTimeImmutable $now): ImportReport;
+    public function confirm(InstallationId $installation, int $batchId, array $associations, int $userId, \DateTimeImmutable $now, array $rejectedItemIds = []): ImportReport;
 
     public function cancelBatch(InstallationId $installation, int $batchId): void;
 }

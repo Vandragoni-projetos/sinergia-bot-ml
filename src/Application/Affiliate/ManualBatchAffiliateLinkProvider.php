@@ -152,10 +152,23 @@ final class ManualBatchAffiliateLinkProvider implements AffiliateLinkProvider
             throw new BatchRejected(BatchRejected::NOTHING_SELECTED);
         }
 
-        $report = $this->store->confirm($installation, $batch->id, $chosen, $userId, $this->clock->now());
+        // Recusas do Gerador na posição exata (lote alinhado: mesma quantidade de linhas e sem anomalia): o produto daquela
+        // posição é recusado pelo Programa e sai dos próximos lotes. Nunca um produto que acabou de receber link.
+        $rejected = [];
+        if ($batch->anomalies === [] && count($batch->lines) === count($batch->items)) {
+            $chosenItems = array_flip(array_column($chosen, 'item_id'));
+            foreach ($batch->items as $item) {
+                $line = $lines[$item->position] ?? null;
+                if ($line !== null && $line->isProgramRefusal() && $item->matchStatus !== 'confirmed' && !isset($chosenItems[$item->id])) {
+                    $rejected[] = $item->id;
+                }
+            }
+        }
+
+        $report = $this->store->confirm($installation, $batch->id, $chosen, $userId, $this->clock->now(), $rejected);
         $this->logger->info('affiliate.batch_confirmed', [
             'installation_id' => $installation->value, 'user_id' => $userId,
-            'created' => $report->created, 'replaced' => $report->replaced, 'reused' => $report->reused, 'unmatched' => $report->leftUnmatched,
+            'created' => $report->created, 'replaced' => $report->replaced, 'reused' => $report->reused, 'unmatched' => $report->leftUnmatched, 'rejected' => $report->rejected,
         ]);
 
         return $report;

@@ -349,6 +349,63 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         self::assertSame(0, $this->tableCount('affiliate_links'), 'A prévia nunca grava.');
     }
 
+    public function testProgramRefusalsInTheirPositionsBecomeRejectedAndTheOtherLinksConfirmOneToOne(): void
+    {
+        $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
+        $this->thirtyOneCandidates();
+        $key = $this->export($ana);
+        $refused = [8, 13, 28];
+        $lines = self::thirtyLinks();
+        foreach ($refused as $n) {
+            $lines[$n - 1] = '⚠️ Este URL não é permitido pelo Programa.';   // como vem da caixa do Gerador (posição preservada)
+        }
+
+        $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", $lines)]);
+        $page = $this->page($ana);
+
+        self::assertStringContainsString('<strong>27</strong> link(s) válido(s) · <strong>3</strong> produto(s) recusado(s) pelo Mercado Livre', $page);
+        self::assertStringNotContainsString('Nada foi associado automaticamente', $page);
+        $valid = array_values(array_diff(range(1, 30), $refused));
+        self::assertSame($valid, $this->checkedLines($page), 'Selecionar todos = as 27 válidas.');
+        self::assertSame($valid, array_keys($this->proposed($page)));
+        self::assertStringContainsString('de 27 associações selecionadas', $page);
+        self::assertStringContainsString('data-inicial="27"', $page);
+        foreach ($refused as $n) {
+            self::assertStringNotContainsString('name="incluir[' . $n . ']"', $page, 'Recusado não tem caixa.');
+            self::assertStringNotContainsString('name="associar[' . $n . ']"', $page);
+            self::assertStringContainsString($n . '. Produto lote ' . $n . ' — não permitido pelo Programa de Afiliados', $page);
+        }
+        self::assertSame(0, $this->tableCount('affiliate_links'), 'A prévia nunca grava.');
+
+        // Confirmar as 27 selecionadas.
+        $response = $this->post($ana, "/fila/links/$key/confirmar", ['com_selecao' => '1', 'associar' => $this->proposed($page), 'incluir' => array_fill_keys($valid, '1')]);
+        self::assertSame('/fila?ok=confirmado&resumo=27-0-0-0&recusados=3#afiliados', $response->getHeaderLine('Location'));
+
+        // Só os 27 válidos gravados, cada um no produto da SUA posição, byte a byte.
+        $rows = $this->rows('SELECT i.position, l.ml_product_id, l.offer_item_id, l.affiliate_url, HEX(l.affiliate_url) FROM affiliate_links l JOIN affiliate_link_batch_items i ON i.id = l.batch_item_id ORDER BY i.position');
+        self::assertSame(array_map('strval', $valid), array_column($rows, 0));
+        foreach ($rows as [$position, $product, $offer, $url, $hex]) {
+            self::assertSame(sprintf('MLB2000%02d', (int) $position), $product);
+            self::assertSame(sprintf('MLB72000%02d', (int) $position), $offer);
+            self::assertSame(sprintf('https://meli.la/Lote30n%02d', (int) $position), $url);
+            self::assertSame(strtoupper(bin2hex($url)), $hex);
+        }
+        // Recusados registrados com o motivo; lote concluído (nada pendente).
+        self::assertSame(
+            [['8', 'MLB200008', 'rejected', 'affiliate_program_rejected'], ['13', 'MLB200013', 'rejected', 'affiliate_program_rejected'], ['28', 'MLB200028', 'rejected', 'affiliate_program_rejected']],
+            $this->rows("SELECT position, ml_product_id, match_status, reason FROM affiliate_link_batch_items WHERE match_status = 'rejected' ORDER BY position"),
+        );
+        self::assertSame([['confirmed', '27']], $this->rows('SELECT status, confirmed_count FROM affiliate_link_batches WHERE public_key = ?', [$key]));
+        self::assertStringContainsString('3 produto(s) não permitido(s) pelo Programa de Afiliados foram retirados dos próximos lotes.', (string) $this->httpGet('/fila', ['sbm_session' => $ana], ['ok' => 'confirmado', 'resumo' => '27-0-0-0', 'recusados' => '3'])->getBody());
+
+        // O próximo lote NÃO traz os recusados: sobra só o 31º produto (sem ciclo infinito).
+        self::assertStringContainsString('Copiar URLs (1 produtos)', $this->page($ana));
+        $next = $this->export($ana);
+        self::assertSame('https://produto.mercadolivre.com.br/MLB-7200031', $this->exportTextOf($next));
+        $awaiting = array_map(static fn ($p): string => $p->productId, $this->container->get(AffiliateLinkRepository::class)->productsAwaitingLink($this->a->id, 50));
+        self::assertSame([], array_intersect(['MLB200008', 'MLB200013', 'MLB200028'], $awaiting));
+    }
+
     public function testDeselectAllAndSelectAll(): void
     {
         $ana = $this->signIn('ana@loja-a.test', self::PASSWORD);
@@ -427,7 +484,7 @@ final class PanelAffiliateLinksTest extends DatabaseTestCase
         $this->thirtyOneCandidates();
         $key = $this->export($ana);
         $links = self::thirtyLinks();
-        $links[3] = 'Este URL não é permitido pelo Programa.';
+        $links[3] = 'texto que não é link';   // lixo de verdade (a recusa do Gerador é tratada à parte, como posição)
 
         $this->post($ana, "/fila/links/$key/colar", ['links' => implode("\n", $links)]);
         $page = $this->page($ana);

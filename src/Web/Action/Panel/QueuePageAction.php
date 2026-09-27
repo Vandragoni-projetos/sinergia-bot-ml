@@ -120,11 +120,20 @@ final class QueuePageAction
                 }
             }
             $valid = $line->formatStatus === ReceivedLine::VALID;
+            $refused = $line->isProgramRefusal();
+            $refusedProduct = null;
+            if ($refused && ($batch->anomalies ?? []) === [] && count($batch->lines) === count($batch->items)) {
+                foreach ($batch->items as $item) {
+                    $refusedProduct = $item->position === $line->lineNo ? $item->productName : $refusedProduct;
+                }
+            }
             $selectable = $valid && $line->evidence !== ReceivedLine::EVIDENCE_CONFLICT;
             $lines[] = [
                 'no' => $line->lineNo,
                 'text' => $line->url,
-                'format' => self::FORMAT[$line->formatStatus] ?? $line->formatStatus,
+                'format' => $refused ? 'Não permitido pelo Programa de Afiliados' : (self::FORMAT[$line->formatStatus] ?? $line->formatStatus),
+                'refused' => $refused,
+                'refusedProduct' => $refusedProduct,
                 'valid' => $valid,
                 'evidence' => self::EVIDENCE[$line->evidence] ?? $line->evidence,
                 'strong' => $line->evidence === ReceivedLine::EVIDENCE_PRODUCT_ID,
@@ -152,6 +161,9 @@ final class QueuePageAction
             'batch' => $batch,
             'lines' => $lines,
             'anomalies' => array_map(static fn (string $a): string => self::ANOMALIES[$a] ?? $a, $batch->anomalies ?? []),
+            'validCount' => count(array_filter($lines, static fn (array $l): bool => $l['valid'])),
+            'refusedCount' => count(array_filter($lines, static fn (array $l): bool => $l['refused'])),
+            'rejectedAfterConfirm' => is_string($query['recusados'] ?? null) && preg_match('/^\d{1,3}$/', $query['recusados']) === 1 ? (int) $query['recusados'] : 0,
             'countMismatch' => in_array(BatchPreview::COUNT_MISMATCH, $batch->anomalies ?? [], true),
             'selectableCount' => count(array_filter($lines, static fn (array $l): bool => $l['selectable'])),
             'checkedCount' => count(array_filter($lines, static fn (array $l): bool => $l['checked'])),

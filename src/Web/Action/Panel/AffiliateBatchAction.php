@@ -71,7 +71,7 @@ final class AffiliateBatchAction
                     }
                     $report = $provider->confirmImport($tenant->installationId, $key, $associations, $tenant->userId);
 
-                    return self::redirect($response, 'ok=confirmado&resumo=' . implode('-', [$report->created, $report->replaced, $report->reused, $report->leftUnmatched]));
+                    return self::redirect($response, 'ok=confirmado&resumo=' . implode('-', [$report->created, $report->replaced, $report->reused, $report->leftUnmatched]) . ($report->rejected > 0 ? '&recusados=' . $report->rejected : ''));
                 default:
                     $provider->cancel($tenant->installationId, $key);
 
